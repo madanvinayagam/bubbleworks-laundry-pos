@@ -90,7 +90,7 @@ If you want a **single Vercel project**, the backend would still need to be fold
 Frontend project:
 
 - Root directory: `apps/web`
-- Build command: `npm run build:web`
+- Build command: `npm run vercel-build`
 - Install command: `npm install`
 - Environment variables:
   - `NEXT_PUBLIC_API_URL=https://your-api-domain`
@@ -99,7 +99,7 @@ Frontend project:
 Backend project:
 
 - Root directory: `apps/api`
-- Build command: `npm run build:api`
+- Build command: `npm run vercel-build`
 - Environment variables:
   - `DATABASE_URL=...`
   - `JWT_SECRET=...`
