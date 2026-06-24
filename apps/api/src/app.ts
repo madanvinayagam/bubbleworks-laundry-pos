@@ -1,7 +1,8 @@
 import cors from "cors";
 import express from "express";
-import rateLimit from "express-rate-limit";
-import helmet from "helmet";
+import type { RequestHandler } from "express";
+import { rateLimit } from "express-rate-limit";
+import { createRequire } from "node:module";
 import { corsOrigins } from "./config/env.js";
 import { authRouter } from "./routes/auth.js";
 import { healthRouter } from "./routes/health.js";
@@ -14,6 +15,9 @@ import { ordersRouter } from "./routes/orders.js";
 import { reportsRouter } from "./routes/reports.js";
 import { dangerZoneRouter } from "./routes/danger-zone.js";
 import { errorHandler, notFoundHandler } from "./middleware/error.js";
+
+const require = createRequire(import.meta.url);
+const helmet = require("helmet") as () => RequestHandler;
 
 export function createApp() {
   const app = express();
