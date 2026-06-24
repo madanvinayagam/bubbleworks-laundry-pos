@@ -31,6 +31,14 @@ export function createApp() {
   );
   app.use(express.json({ limit: "1mb" }));
 
+  app.get("/", (_req, res) => {
+    res.json({
+      status: "ok",
+      service: "bubbleworks-api",
+      checkedAt: new Date().toISOString(),
+    });
+  });
+
   app.use(
     "/api/v1/auth/login",
     rateLimit({
