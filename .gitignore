@@ -1,0 +1,69 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+**/dist/
+build/
+**/build/
+out/
+**/out/
+.next/
+**/.next/
+.vite/
+**/.vite/
+coverage/
+**/coverage/
+
+# Tooling caches
+.turbo/
+.vercel/
+.cache/
+**/.cache/
+*.tsbuildinfo
+.eslintcache
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.example.*
+*.local
+
+# Backups and temporary exports
+backups/
+*.timestamp-*.mjs
+
+# Generated app artifacts
+apps/legacy-pos/dist/
+apps/legacy-pos/.vite/
+apps/web/.next/
+apps/web/out/
+apps/api/dist/
+packages/shared/dist/
+
+# Local data
+data/
+*.mongodb
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

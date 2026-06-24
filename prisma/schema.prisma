@@ -1,0 +1,263 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  CASHIER
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ServiceStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PricingType {
+  PER_PIECE
+  PER_KG
+}
+
+enum OrderStatus {
+  RECEIVED
+  WASHING
+  DRYING
+  IRONING
+  READY
+  DELIVERED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+  CREDIT
+}
+
+enum PaymentStatus {
+  PAID
+  PARTIAL
+  UNPAID
+}
+
+enum PrinterSize {
+  MM_58
+  MM_80
+}
+
+
+
+
+
+
+enum PrintType {
+  ORIGINAL
+  REPRINT
+}
+
+model User {
+  id             String     @id @default(uuid())
+  name           String
+  mobile         String
+  username       String     @unique
+  passwordHash   String
+  role           UserRole
+  status         UserStatus @default(ACTIVE)
+  branchId       String?
+  branch         Branch?    @relation(fields: [branchId], references: [id])
+  lastLoginAt    DateTime?
+  createdById    String?
+  createdBy      User?      @relation("UserCreator", fields: [createdById], references: [id])
+  createdUsers   User[]     @relation("UserCreator")
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  createdOrders  Order[]    @relation("OrderCreator")
+  payments       Payment[]  @relation("PaymentReceiver")
+  printLogs      PrintLog[]
+
+  @@index([branchId])
+  @@index([role])
+}
+
+model Branch {
+  id              String           @id @default(uuid())
+  name            String
+  code            String           @unique
+  address         String
+  mobile          String
+  status          BranchStatus     @default(ACTIVE)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  users           User[]
+  customers       Customer[]
+  orders          Order[]
+  payments        Payment[]
+  numberSequences NumberSequence[]
+
+  @@index([status])
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  branchId  String
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  name      String
+  mobile    String
+  address   String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders    Order[]
+
+  @@unique([branchId, mobile])
+  @@index([name])
+  @@index([mobile])
+}
+
+model Service {
+  id          String        @id @default(uuid())
+  name        String        @unique
+  description String        @default("")
+  pricingType PricingType
+  defaultRate Decimal       @db.Decimal(10, 2)
+  gstRate     Decimal       @default(18.00) @db.Decimal(5, 2)
+  status      ServiceStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  orderItems  OrderItem[]
+
+  @@index([pricingType])
+  @@index([status])
+}
+
+model Order {
+  id                   String        @id @default(uuid())
+  branchId             String
+  branch               Branch        @relation(fields: [branchId], references: [id])
+  customerId           String
+  customer             Customer      @relation(fields: [customerId], references: [id])
+  createdById          String
+  createdBy            User          @relation("OrderCreator", fields: [createdById], references: [id])
+  billNumber           String
+  tokenNumber          String
+  status               OrderStatus   @default(RECEIVED)
+  orderDate            DateTime      @default(now())
+  expectedDeliveryDate DateTime
+  deliveredDate        DateTime?
+  subtotal             Decimal       @db.Decimal(10, 2)
+  discountAmount       Decimal       @default(0.00) @db.Decimal(10, 2)
+  roundOff             Decimal       @default(0.00) @db.Decimal(10, 2)
+  gstRate              Decimal       @default(18.00) @db.Decimal(5, 2)
+  gstAmount            Decimal       @db.Decimal(10, 2)
+  grandTotal           Decimal       @db.Decimal(10, 2)
+  paidAmount           Decimal       @default(0.00) @db.Decimal(10, 2)
+  balanceAmount        Decimal       @default(0.00) @db.Decimal(10, 2)
+  paymentStatus        PaymentStatus @default(UNPAID)
+  notes                String        @default("")
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  items                OrderItem[]
+  payments             Payment[]
+  printLogs            PrintLog[]
+
+  @@unique([branchId, billNumber])
+  @@unique([branchId, tokenNumber])
+  @@index([customerId])
+  @@index([status])
+  @@index([orderDate])
+  @@index([expectedDeliveryDate])
+  @@index([paymentStatus])
+}
+
+model OrderItem {
+  id                  String      @id @default(uuid())
+  orderId             String
+  order               Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  serviceId           String?
+  service             Service?    @relation(fields: [serviceId], references: [id])
+  serviceNameSnapshot String
+  pricingType         PricingType
+  quantity            Int?
+  weightKg            Decimal?    @db.Decimal(10, 3)
+  rate                Decimal     @db.Decimal(10, 2)
+  amount              Decimal     @db.Decimal(10, 2)
+  createdAt           DateTime    @default(now())
+
+  @@index([orderId])
+  @@index([serviceId])
+}
+
+model Payment {
+  id              String        @id @default(uuid())
+  orderId         String
+  order           Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  branchId        String
+  branch          Branch        @relation(fields: [branchId], references: [id])
+  method          PaymentMethod
+  amount          Decimal       @db.Decimal(10, 2)
+  referenceNumber String?
+  receivedById    String
+  receivedBy      User          @relation("PaymentReceiver", fields: [receivedById], references: [id])
+  paidAt          DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+
+  @@index([orderId])
+  @@index([branchId])
+  @@index([method])
+  @@index([paidAt])
+}
+
+model NumberSequence {
+  id              String   @id @default(uuid())
+  branchId        String
+  branch          Branch   @relation(fields: [branchId], references: [id])
+  sequenceDate    DateTime @db.Date
+  billLastNumber  Int      @default(0)
+  tokenLastNumber Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([branchId, sequenceDate])
+}
+
+model PrintLog {
+  id         String    @id @default(uuid())
+  orderId    String
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  printType  PrintType
+  printCount Int
+  printedAt  DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+
+  @@index([orderId])
+  @@index([userId])
+}
+
+
+model Setting {
+  id             String      @id @default("global")
+  businessName   String      @default("Bubbleworks")
+  logoUrl        String?
+  address        String      @default("")
+  mobile         String      @default("")
+  gstNumber      String      @default("")
+  defaultGstRate Decimal     @default(18.00) @db.Decimal(5, 2)
+  printerSize    PrinterSize @default(MM_80)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+}

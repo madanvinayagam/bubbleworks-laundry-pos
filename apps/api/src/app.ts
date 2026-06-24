@@ -1,0 +1,55 @@
+import cors from "cors";
+import express from "express";
+import rateLimit from "express-rate-limit";
+import helmet from "helmet";
+import { env } from "./config/env.js";
+import { authRouter } from "./routes/auth.js";
+import { healthRouter } from "./routes/health.js";
+import { branchesRouter } from "./routes/branches.js";
+import { usersRouter } from "./routes/users.js";
+import { servicesRouter } from "./routes/services.js";
+import { settingsRouter } from "./routes/settings.js";
+import { customersRouter } from "./routes/customers.js";
+import { ordersRouter } from "./routes/orders.js";
+import { reportsRouter } from "./routes/reports.js";
+import { dangerZoneRouter } from "./routes/danger-zone.js";
+import { errorHandler, notFoundHandler } from "./middleware/error.js";
+
+export function createApp() {
+  const app = express();
+
+  app.use(helmet());
+  app.use(
+    cors({
+      origin: env.CORS_ORIGIN,
+      credentials: true,
+    }),
+  );
+  app.use(express.json({ limit: "1mb" }));
+
+  app.use(
+    "/api/v1/auth/login",
+    rateLimit({
+      windowMs: 15 * 60 * 1000,
+      limit: 20,
+      standardHeaders: true,
+      legacyHeaders: false,
+    }),
+  );
+
+  app.use("/health", healthRouter);
+  app.use("/api/v1/auth", authRouter);
+  app.use("/api/v1/branches", branchesRouter);
+  app.use("/api/v1/users", usersRouter);
+  app.use("/api/v1/services", servicesRouter);
+  app.use("/api/v1/settings", settingsRouter);
+  app.use("/api/v1/customers", customersRouter);
+  app.use("/api/v1/orders", ordersRouter);
+  app.use("/api/v1/reports", reportsRouter);
+  app.use("/api/v1/danger-zone", dangerZoneRouter);
+
+  app.use(notFoundHandler);
+  app.use(errorHandler);
+
+  return app;
+}
