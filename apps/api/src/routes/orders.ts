@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { 
-  createOrderSchema, 
-  calculateBillingTotals, 
-  formatBillNumber, 
-  formatTokenNumber 
+import {
+  createOrderSchema,
+  calculateBillingTotals,
+  formatBillNumber,
+  formatTokenNumber,
+  type BillingItemInput
 } from "@bubbleworks/shared";
 import PDFDocument from "pdfkit";
 import { prisma } from "../db/prisma.js";
@@ -280,7 +281,7 @@ ordersRouter.post(
       });
 
       // 6. Create OrderItem entries
-      const orderItemsData = input.items.map((item) => {
+      const orderItemsData = input.items.map((item: BillingItemInput) => {
         const itemAmount = item.pricingType === "PER_KG" 
           ? (item.weightKg ?? 0) * item.rate 
           : (item.quantity ?? 0) * item.rate;

@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
-    "vercel-build": "npm --prefix ../.. run prisma:generate && npm run build",
+    "vercel-build": "npm --prefix ../.. run build:shared && npm --prefix ../.. run prisma:generate && npm run build",
     "start": "node dist/server.js",
     "check": "tsc -p tsconfig.json --noEmit"
   },
