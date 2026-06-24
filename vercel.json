@@ -1,9 +1,30 @@
 {
   "version": 2,
-  "rewrites": [
+  "builds": [
     {
-      "source": "/api/:path*",
-      "destination": "https://bubbleworks-api.example.com/api/:path*"
+      "src": "apps/web/package.json",
+      "use": "@vercel/next"
+    },
+    {
+      "src": "apps/api/src/server.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "packages/shared/dist/**",
+          "node_modules/.prisma/**",
+          "node_modules/@prisma/client/**"
+        ]
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "apps/api/src/server.ts"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "apps/web/$1"
     }
   ]
 }
