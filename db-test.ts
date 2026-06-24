@@ -17,10 +17,10 @@ async function main() {
     const userCount = await prisma.user.count();
     console.log("Successfully connected!");
     console.log(`User count: ${userCount}`);
-    
+
     const branchCount = await prisma.branch.count();
     console.log(`Branch count: ${branchCount}`);
-    
+
     // Test multiple queries in sequence to see if prepared statement error occurs
     const orders = await prisma.order.findMany({ take: 5 });
     console.log(`Orders fetched successfully: ${orders.length}`);
