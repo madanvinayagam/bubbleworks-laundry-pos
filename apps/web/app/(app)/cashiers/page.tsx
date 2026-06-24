@@ -13,7 +13,9 @@ import {
   X, 
   Plus, 
   CheckCircle, 
-  Clock 
+  Clock,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import { 
   getUsers, 
@@ -37,6 +39,8 @@ export default function CashiersPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
   
   // Form input states
   const [name, setName] = useState("");
@@ -75,6 +79,7 @@ export default function CashiersPage() {
     setMobile("");
     setUsername("");
     setPassword("");
+    setShowPassword(false);
     setBranchId(branches[0]?.id || "");
     setError("");
     setIsFormOpen(true);
@@ -86,6 +91,7 @@ export default function CashiersPage() {
     setMobile(user.mobile);
     setUsername(user.username);
     setPassword("");
+    setShowPassword(false);
     setBranchId(user.branchId || "");
     setError("");
     setIsFormOpen(true);
@@ -94,6 +100,7 @@ export default function CashiersPage() {
   const handleOpenPassword = (user: User) => {
     setSelectedUser(user);
     setPassword("");
+    setShowResetPassword(false);
     setError("");
     setIsPasswordOpen(true);
   };
@@ -357,14 +364,23 @@ export default function CashiersPage() {
               {!selectedUser && (
                 <div>
                   <label className="block text-sm font-medium mb-1">Login Password (Min 8 chars)</label>
-                  <input
-                    required
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="focus-ring h-10 w-full rounded-md border border-line px-3 text-sm bg-white"
-                    placeholder="Enter password"
-                  />
+                  <div className="relative">
+                    <input
+                      required
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="focus-ring h-10 w-full rounded-md border border-line pl-3 pr-10 text-sm bg-white"
+                      placeholder="Enter password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted hover:text-foreground"
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -425,14 +441,23 @@ export default function CashiersPage() {
             <form onSubmit={handleResetPassword} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">New Password (Min 8 chars)</label>
-                <input
-                  required
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="focus-ring h-10 w-full rounded-md border border-line px-3 text-sm bg-white"
-                  placeholder="Enter new password"
-                />
+                <div className="relative">
+                  <input
+                    required
+                    type={showResetPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="focus-ring h-10 w-full rounded-md border border-line pl-3 pr-10 text-sm bg-white"
+                    placeholder="Enter new password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowResetPassword(!showResetPassword)}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted hover:text-foreground"
+                  >
+                    {showResetPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button

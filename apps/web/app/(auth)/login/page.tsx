@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { login } from "@/lib/api";
 import { saveSession } from "@/lib/session";
+import { Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,6 +12,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("Admin1234");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -45,16 +47,25 @@ export default function LoginPage() {
               autoComplete="username"
             />
           </label>
-          <label className="block">
+          <div className="block">
             <span className="mb-1 block text-sm font-medium">Password</span>
-            <input
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="focus-ring h-11 w-full rounded-md border border-line px-3"
-              type="password"
-              autoComplete="current-password"
-            />
-          </label>
+            <div className="relative">
+              <input
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="focus-ring h-11 w-full rounded-md border border-line pl-3 pr-10"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted hover:text-foreground"
+              >
+                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
+            </div>
+          </div>
           {error ? <div className="rounded-md bg-[#fff1ef] px-3 py-2 text-sm text-danger">{error}</div> : null}
           <button
             type="submit"
