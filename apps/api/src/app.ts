@@ -2,7 +2,7 @@ import cors from "cors";
 import express from "express";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
-import { env } from "./config/env.js";
+import { corsOrigins } from "./config/env.js";
 import { authRouter } from "./routes/auth.js";
 import { healthRouter } from "./routes/health.js";
 import { branchesRouter } from "./routes/branches.js";
@@ -21,7 +21,7 @@ export function createApp() {
   app.use(helmet());
   app.use(
     cors({
-      origin: env.CORS_ORIGIN,
+      origin: corsOrigins.length === 1 ? corsOrigins[0] : corsOrigins,
       credentials: true,
     }),
   );
@@ -37,7 +37,7 @@ export function createApp() {
     }),
   );
 
-  app.use("/health", healthRouter);
+  app.use("/api/health", healthRouter);
   app.use("/api/v1/auth", authRouter);
   app.use("/api/v1/branches", branchesRouter);
   app.use("/api/v1/users", usersRouter);
