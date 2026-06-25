@@ -49,7 +49,7 @@ servicesRouter.post(
       action: "SETTINGS_UPDATED",
       entityType: "service",
       entityId: service.id,
-      metadata: { name: service.name, price: service.defaultRate },
+      metadata: { name: service.name, action: "create" },
       ipAddress: req.ip,
       userAgent: req.headers["user-agent"],
     });

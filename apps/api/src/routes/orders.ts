@@ -1,4 +1,5 @@
 import { Router } from "express";
+import crypto from "crypto";
 import {
   createOrderSchema,
   calculateBillingTotals,
@@ -42,9 +43,20 @@ ordersRouter.get(
         items: {
           select: {
             serviceNameSnapshot: true,
-            pricingType: true,
+            productNameSnapshot: true,
+            categorySnapshot: true,
+            unitSnapshot: true,
             quantity: true,
             weightKg: true,
+            rate: true,
+            amount: true,
+            addOns: {
+              select: {
+                addOnNameSnapshot: true,
+                rate: true,
+                amount: true,
+              },
+            },
           },
         },
       },
@@ -280,27 +292,56 @@ ordersRouter.post(
         },
       });
 
-      // 6. Create OrderItem entries
-      const orderItemsData = input.items.map((item: BillingItemInput) => {
-        const itemAmount = item.pricingType === "PER_KG" 
-          ? (item.weightKg ?? 0) * item.rate 
-          : (item.quantity ?? 0) * item.rate;
+      // 6. Create OrderItem and OrderItemAddOn entries
+      const orderItemsData: any[] = [];
+      const orderItemAddOnsData: any[] = [];
 
-        return {
+      for (const item of input.items) {
+        const orderItemId = crypto.randomUUID();
+        const isKg = item.unit.toLowerCase() === "kg" || item.unit.toLowerCase() === "per kg";
+        const unitCount = isKg ? (item.weightKg ?? 0) : (item.quantity ?? 0);
+        
+        const baseAmount = unitCount * item.rate;
+        const addOnsTotalAmount = (item.addOns ?? []).reduce((sum, addOn) => sum + (unitCount * addOn.rate), 0);
+        const finalItemAmount = baseAmount + addOnsTotalAmount;
+
+        orderItemsData.push({
+          id: orderItemId,
           orderId: order.id,
-          serviceId: item.serviceId,
+          serviceRateId: item.serviceRateId || null,
           serviceNameSnapshot: item.serviceName,
-          pricingType: item.pricingType,
+          productNameSnapshot: item.productName || null,
+          categorySnapshot: item.category || null,
+          unitSnapshot: item.unit,
           quantity: item.quantity,
           weightKg: item.weightKg,
           rate: item.rate,
-          amount: itemAmount,
-        };
-      });
+          gstRate: item.gstRate ?? 18,
+          amount: finalItemAmount,
+        });
+
+        if (item.addOns && item.addOns.length > 0) {
+          for (const addOn of item.addOns) {
+            orderItemAddOnsData.push({
+              orderItemId: orderItemId,
+              addOnId: addOn.addOnId || null,
+              addOnNameSnapshot: addOn.addOnName,
+              rate: addOn.rate,
+              amount: unitCount * addOn.rate,
+            });
+          }
+        }
+      }
 
       await tx.orderItem.createMany({
         data: orderItemsData,
       });
+
+      if (orderItemAddOnsData.length > 0) {
+        await tx.orderItemAddOn.createMany({
+          data: orderItemAddOnsData,
+        });
+      }
 
       // 7. Create Payment log if paidAmount > 0
       if (totals.paidAmount > 0) {
@@ -331,7 +372,11 @@ ordersRouter.get(
       include: {
         customer: true,
         branch: true,
-        items: true,
+        items: {
+          include: {
+            addOns: true,
+          },
+        },
         payments: {
           include: {
             receivedBy: { select: { name: true } },
@@ -475,7 +520,11 @@ ordersRouter.get(
       include: {
         customer: true,
         branch: true,
-        items: true,
+        items: {
+          include: {
+            addOns: true,
+          },
+        },
       },
     });
     if (!order) {
@@ -553,16 +602,31 @@ ordersRouter.get(
     // Table Rows
     order.items.forEach((item) => {
       const rowY = doc.y;
-      doc.text(item.serviceNameSnapshot, itemX, rowY);
-      doc.text(item.pricingType, typeX, rowY);
       
-      const qtyWt = item.pricingType === "PER_KG" 
-        ? `${item.weightKg} kg` 
-        : `${item.quantity}`;
+      let displayName = item.serviceNameSnapshot;
+      if (item.productNameSnapshot) displayName += ` - ${item.productNameSnapshot}`;
+      if (item.categorySnapshot) displayName += ` [${item.categorySnapshot}]`;
+      
+      doc.text(displayName, itemX, rowY);
+      doc.text(item.unitSnapshot, typeX, rowY);
+      
+      const isKg = item.unitSnapshot.toLowerCase() === "kg" || item.unitSnapshot.toLowerCase() === "per kg";
+      const qtyWt = isKg ? `${item.weightKg} kg` : `${item.quantity}`;
       doc.text(qtyWt, qtyX, rowY);
       doc.text(`INR ${item.rate}`, rateX, rowY);
       doc.text(`INR ${item.amount}`, amountX, rowY);
+      
       doc.y = rowY + 15;
+
+      if (item.addOns && item.addOns.length > 0) {
+        item.addOns.forEach((addOn: any) => {
+          const addonY = doc.y;
+          doc.fontSize(8).fillColor("#555555").text(`  + Add-on: ${addOn.addOnNameSnapshot} (@ INR ${addOn.rate})`, itemX, addonY);
+          doc.text(`INR ${addOn.amount}`, amountX, addonY);
+          doc.y = addonY + 12;
+        });
+        doc.fontSize(10).fillColor("#000000"); // Reset style
+      }
     });
 
     doc.moveTo(40, doc.y).lineTo(550, doc.y).stroke();

@@ -131,15 +131,11 @@ model Service {
   id          String        @id @default(uuid())
   name        String        @unique
   description String        @default("")
-  pricingType PricingType
-  defaultRate Decimal       @db.Decimal(10, 2)
-  gstRate     Decimal       @default(18.00) @db.Decimal(5, 2)
   status      ServiceStatus @default(ACTIVE)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
-  orderItems  OrderItem[]
+  rates       ServiceRate[]
 
-  @@index([pricingType])
   @@index([status])
 }
 
@@ -183,21 +179,25 @@ model Order {
 }
 
 model OrderItem {
-  id                  String      @id @default(uuid())
+  id                  String           @id @default(uuid())
   orderId             String
-  order               Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  serviceId           String?
-  service             Service?    @relation(fields: [serviceId], references: [id])
+  order               Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  serviceRateId       String?
+  serviceRate         ServiceRate?     @relation(fields: [serviceRateId], references: [id], onDelete: SetNull)
   serviceNameSnapshot String
-  pricingType         PricingType
+  productNameSnapshot String?
+  categorySnapshot    String?
+  unitSnapshot        String
   quantity            Int?
-  weightKg            Decimal?    @db.Decimal(10, 3)
-  rate                Decimal     @db.Decimal(10, 2)
-  amount              Decimal     @db.Decimal(10, 2)
-  createdAt           DateTime    @default(now())
+  weightKg            Decimal?         @db.Decimal(10, 3)
+  rate                Decimal          @db.Decimal(10, 2)
+  gstRate             Decimal          @default(18.00) @db.Decimal(5, 2)
+  amount              Decimal          @db.Decimal(10, 2)
+  createdAt           DateTime         @default(now())
+  addOns              OrderItemAddOn[]
 
   @@index([orderId])
-  @@index([serviceId])
+  @@index([serviceRateId])
 }
 
 model Payment {
@@ -260,4 +260,90 @@ model Setting {
   printerSize    PrinterSize @default(MM_80)
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum RateStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AddOnStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Product {
+  id          String        @id @default(uuid())
+  name        String        @unique
+  description String        @default("")
+  status      ProductStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  rates       ServiceRate[]
+
+  @@index([status])
+}
+
+model ItemCategory {
+  id        String        @id @default(uuid())
+  name      String        @unique
+  rates     ServiceRate[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+model ServiceRate {
+  id         String        @id @default(uuid())
+  serviceId  String
+  service    Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  productId  String?
+  product    Product?      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  categoryId String?
+  category   ItemCategory? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  unit       String
+  rate       Decimal       @db.Decimal(10, 2)
+  gstRate    Decimal       @default(18.00) @db.Decimal(5, 2)
+  status     RateStatus    @default(ACTIVE)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  orderItems OrderItem[]
+
+  @@unique([serviceId, productId, categoryId])
+  @@index([serviceId])
+  @@index([productId])
+  @@index([categoryId])
+  @@index([status])
+}
+
+model AddOn {
+  id          String           @id @default(uuid())
+  name        String           @unique
+  rate        Decimal          @db.Decimal(10, 2)
+  unit        String
+  status      AddOnStatus      @default(ACTIVE)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  orderItems  OrderItemAddOn[]
+
+  @@index([status])
+}
+
+model OrderItemAddOn {
+  id                String    @id @default(uuid())
+  orderItemId       String
+  orderItem         OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  addOnId           String?
+  addOn             AddOn?    @relation(fields: [addOnId], references: [id], onDelete: SetNull)
+  addOnNameSnapshot String
+  rate              Decimal   @db.Decimal(10, 2)
+  amount            Decimal   @db.Decimal(10, 2)
+  createdAt         DateTime  @default(now())
+
+  @@index([orderItemId])
+  @@index([addOnId])
 }

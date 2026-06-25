@@ -1,26 +1,34 @@
 "use client";
 
-import { createPortal } from "react-dom";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { 
   getServices, 
+  getProducts,
+  getCategories,
+  getRates,
   searchCustomers, 
   createCustomer, 
   createOrder, 
   getOrderNumberPreview,
   getSettings,
   Service, 
+  Product,
+  ItemCategory,
+  ServiceRate,
   Customer 
 } from "@/lib/api";
 import { loadSession } from "@/lib/session";
-import { calculateBillingTotals, BillingItemInput, PaymentMethod } from "@bubbleworks/shared";
-import { Search, Plus, Trash2, CheckCircle2, User, Loader2, Printer, Keyboard, Sparkles } from "lucide-react";
+import { calculateBillingTotals, calculateItemAmount, BillingItemInput, PaymentMethod } from "@bubbleworks/shared";
+import { Search, Plus, Trash2, CheckCircle2, User, Loader2, Printer, Sparkles, Layers, Box, Tag, Sliders, CheckSquare, PlusCircle, IndianRupee } from "lucide-react";
 
 export default function NewBillPage() {
   const router = useRouter();
   const [session, setSession] = useState<any>(null);
   const [services, setServices] = useState<Service[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<ItemCategory[]>([]);
+  const [rates, setRates] = useState<ServiceRate[]>([]);
   const [settings, setSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -37,14 +45,37 @@ export default function NewBillPage() {
   // Order Details
   const [cart, setCart] = useState<Array<{
     lineId: string;
-    serviceId: string;
+    serviceRateId?: string;
     serviceName: string;
-    pricingType: "PER_PIECE" | "PER_KG";
-    quantity: number;
-    weightKg: number;
+    productName?: string | null;
+    category?: string | null;
+    unit: string;
     rate: number;
-    isCustom?: boolean;
+    gstRate: number;
+    quantity?: number;
+    weightKg?: number;
+    addOns: Array<{
+      addOnId?: string;
+      addOnName: string;
+      rate: number;
+    }>;
   }>>([]);
+
+  // Catalog Builder State
+  const [activeBuilderTab, setActiveBuilderTab] = useState<"catalog" | "custom">("catalog");
+  const [builderService, setBuilderService] = useState<Service | null>(null);
+  const [builderProduct, setBuilderProduct] = useState<Product | null>(null);
+  const [builderCategory, setBuilderCategory] = useState<ItemCategory | null>(null);
+  const [builderQty, setBuilderQty] = useState<number>(1);
+  const [builderWeight, setBuilderWeight] = useState<number>(1);
+  const [builderCustomRate, setBuilderCustomRate] = useState<number | null>(null);
+
+  // Custom Item State
+  const [customItemName, setCustomItemName] = useState("");
+  const [customItemUnit, setCustomItemUnit] = useState("piece");
+  const [customItemQty, setCustomItemQty] = useState(1);
+  const [customItemWeight, setCustomItemWeight] = useState(1);
+  const [customItemRate, setCustomItemRate] = useState(0);
   
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [paidAmount, setPaidAmount] = useState<number>(0);
@@ -59,19 +90,7 @@ export default function NewBillPage() {
   // Round-Off state is manual only
   const [roundOff, setRoundOff] = useState<number>(0);
 
-  // Draft item row state
-  const [itemSearch, setItemSearch] = useState("");
-  const [draftQty, setDraftQty] = useState(1);
-  const [draftRate, setDraftRate] = useState(0);
-  const [draftSelectedService, setDraftSelectedService] = useState<Service | null>(null);
-  const [isItemFieldFocused, setIsItemFieldFocused] = useState(false);
-  const [activeItemSuggestionIndex, setActiveItemSuggestionIndex] = useState(0);
-  const itemInputRef = useRef<HTMLInputElement | null>(null);
-  const [itemDropdownStyle, setItemDropdownStyle] = useState<{
-    top: number;
-    left: number;
-    width: number;
-  } | null>(null);
+
 
   const toLocalDatetimeInput = (date: Date) => {
     const year = date.getFullYear();
@@ -99,9 +118,24 @@ export default function NewBillPage() {
     twoDaysLater.setHours(12, 0, 0, 0);
     setExpectedDeliveryDate(toLocalDatetimeInput(twoDaysLater));
 
-    Promise.all([getServices(), getSettings()])
-      .then(([{ services: list }, { settings: set }]) => {
+    Promise.all([
+      getServices(),
+      getProducts(),
+      getCategories(),
+      getRates(),
+      getSettings()
+    ])
+      .then(([
+        { services: list },
+        { products: prodList },
+        { categories: catList },
+        { rates: rateList },
+        { settings: set }
+      ]) => {
         setServices(list.filter((serv) => serv.status === "ACTIVE"));
+        setProducts(prodList.filter((p) => p.status === "ACTIVE"));
+        setCategories(catList);
+        setRates(rateList.filter((r) => r.status === "ACTIVE"));
         setSettings(set);
         return getOrderNumberPreview(s?.user?.branchId || undefined);
       })
@@ -142,12 +176,16 @@ export default function NewBillPage() {
 
   // Calculate POS summary mapping
   const billingItems: BillingItemInput[] = cart.map((item) => ({
-    serviceId: item.serviceId.startsWith("custom-") ? undefined : item.serviceId,
+    serviceRateId: item.serviceRateId,
     serviceName: item.serviceName,
-    pricingType: item.pricingType,
-    quantity: item.pricingType === "PER_PIECE" ? item.quantity : undefined,
-    weightKg: item.pricingType === "PER_KG" ? item.weightKg : undefined,
+    productName: item.productName,
+    category: item.category,
+    unit: item.unit,
     rate: item.rate,
+    gstRate: item.gstRate,
+    quantity: item.quantity,
+    weightKg: item.weightKg,
+    addOns: item.addOns,
   }));
 
   const totals = calculateBillingTotals({
@@ -165,7 +203,7 @@ export default function NewBillPage() {
     }
   }, [totals.grandTotal, paymentMethod]);
 
-  // Keyboard Shortcuts (Alt+S = save/print, Alt+C = focus customer, Alt+F = focus item picker)
+  // Keyboard Shortcuts (Alt+S = save/print, Alt+C = focus customer)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.altKey && e.key.toLowerCase() === "s") {
@@ -177,107 +215,92 @@ export default function NewBillPage() {
         const searchInput = document.getElementById("customer-search-input");
         if (searchInput) (searchInput as HTMLInputElement).focus();
       }
-      if (e.altKey && e.key.toLowerCase() === "f") {
-        e.preventDefault();
-        const itemInput = document.getElementById("item-search-input");
-        if (itemInput) (itemInput as HTMLInputElement).focus();
-      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [cart, selectedCustomer, discountAmount, paidAmount, paymentMethod, notes, expectedDeliveryDate, roundOff]);
 
-  const normalizedItemSearch = itemSearch.trim().toLowerCase();
-  const itemSuggestions = services
-    .filter((service) => !normalizedItemSearch || service.name.toLowerCase().includes(normalizedItemSearch))
-    .sort((a, b) => {
-      if (!normalizedItemSearch) {
-        return a.name.localeCompare(b.name);
-      }
-      const aStarts = a.name.toLowerCase().startsWith(normalizedItemSearch);
-      const bStarts = b.name.toLowerCase().startsWith(normalizedItemSearch);
-      if (aStarts !== bStarts) {
-        return aStarts ? -1 : 1;
-      }
-      return a.name.localeCompare(b.name);
-    })
-    .slice(0, 8);
-  const isItemDropdownOpen = isItemFieldFocused && services.length > 0;
-  const draftUnitLabel = draftSelectedService?.pricingType === "PER_KG" ? "Weight (kg)" : "Pieces";
+    // Auto-selection filters for step-by-step matrix selection
+  const serviceRates = rates.filter(r => r.serviceId === builderService?.id);
 
-  const handleItemSearchChange = (value: string) => {
-    setItemSearch(value);
-    setActiveItemSuggestionIndex(0);
-    if (!draftSelectedService || value.trim().toLowerCase() !== draftSelectedService.name.toLowerCase()) {
-      setDraftSelectedService(null);
-    }
-  };
+  const availableProducts = products.filter(p => 
+    serviceRates.some(r => r.productId === p.id)
+  );
 
-  const handleItemKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!isItemDropdownOpen || itemSuggestions.length === 0) {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        handleAddDraftItem();
-      }
+  const hasNullProductRate = serviceRates.some(r => r.productId === null);
+
+  const productRates = serviceRates.filter(r => 
+    builderProduct ? r.productId === builderProduct.id : r.productId === null
+  );
+
+  const availableCategories = categories.filter(c => 
+    productRates.some(r => r.categoryId === c.id)
+  );
+
+  const hasNullCategoryRate = productRates.some(r => r.categoryId === null);
+
+  useEffect(() => {
+    if (!builderService) {
+      setBuilderProduct(null);
+      setBuilderCategory(null);
+      setBuilderCustomRate(null);
       return;
     }
 
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setActiveItemSuggestionIndex((prev) => (prev + 1) % itemSuggestions.length);
+    const sRates = rates.filter(r => r.serviceId === builderService.id);
+    
+    // Auto-select None/None if there's exactly 1 rate with no product and category
+    if (sRates.length === 1 && sRates[0].productId === null && sRates[0].categoryId === null) {
+      setBuilderProduct(null);
+      setBuilderCategory(null);
+      setBuilderCustomRate(sRates[0].rate);
       return;
     }
 
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActiveItemSuggestionIndex((prev) => (prev - 1 + itemSuggestions.length) % itemSuggestions.length);
-      return;
+    const availProds = products.filter(p => sRates.some(r => r.productId === p.id));
+    const hasNullProd = sRates.some(r => r.productId === null);
+
+    if (availProds.length === 0 && hasNullProd) {
+      setBuilderProduct(null);
+    } else {
+      setBuilderProduct(null);
+      setBuilderCategory(null);
+      setBuilderCustomRate(null);
     }
+  }, [builderService, rates, products]);
 
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const active = itemSuggestions[activeItemSuggestionIndex] ?? itemSuggestions[0];
-      if (active) {
-        handleSelectSuggestion(active);
-      } else {
-        handleAddDraftItem();
-      }
-      return;
+  useEffect(() => {
+    if (!builderService) return;
+    
+    const sRates = rates.filter(r => r.serviceId === builderService.id);
+    const pRates = sRates.filter(r => 
+      builderProduct ? r.productId === builderProduct.id : r.productId === null
+    );
+
+    const availCats = categories.filter(c => pRates.some(r => r.categoryId === c.id));
+    const hasNullCat = pRates.some(r => r.categoryId === null);
+
+    if (availCats.length === 0 && hasNullCat) {
+      setBuilderCategory(null);
+    } else {
+      setBuilderCategory(null);
     }
+    setBuilderCustomRate(null);
+  }, [builderProduct, builderService, rates, categories]);
 
-    if (e.key === "Escape") {
-      setIsItemFieldFocused(false);
-      setActiveItemSuggestionIndex(0);
-    }
-  };
+  const resolvedRate = (() => {
+    if (!builderService) return null;
+    const sRates = rates.filter(r => r.serviceId === builderService.id);
+    const pRates = sRates.filter(r => 
+      builderProduct ? r.productId === builderProduct.id : r.productId === null
+    );
+    return pRates.find(r => 
+      builderCategory ? r.categoryId === builderCategory.id : r.categoryId === null
+    ) || null;
+  })();
 
-  useLayoutEffect(() => {
-    if (!isItemDropdownOpen || !itemInputRef.current) {
-      setItemDropdownStyle(null);
-      return;
-    }
-
-    const updatePosition = () => {
-      const rect = itemInputRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      setItemDropdownStyle({
-        top: rect.bottom + 4,
-        left: rect.left,
-        width: rect.width,
-      });
-    };
-
-    updatePosition();
-
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [isItemDropdownOpen, itemSearch]);
+  const activeRate = builderCustomRate !== null ? builderCustomRate : (resolvedRate?.rate ?? 0);
+  const activeUnit = resolvedRate?.unit ?? "piece";
 
   if (loading) {
     return (
@@ -288,89 +311,77 @@ export default function NewBillPage() {
     );
   }
 
-  // Cart operations
-  const addCartItem = (item: {
-    lineId: string;
-    serviceId: string;
-    serviceName: string;
-    pricingType: "PER_PIECE" | "PER_KG";
-    quantity: number;
-    weightKg: number;
-    rate: number;
-    isCustom?: boolean;
-  }) => {
-    setCart([...cart, item]);
+
+
+  const handleBuilderAddItem = () => {
+    if (!builderService || !resolvedRate) return;
+    const isKg = resolvedRate.unit.toLowerCase() === "kg" || resolvedRate.unit.toLowerCase() === "per kg";
+    
+    setCart([
+      ...cart,
+      {
+        lineId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        serviceRateId: resolvedRate.id,
+        serviceName: builderService.name,
+        productName: builderProduct?.name || null,
+        category: builderCategory?.name || null,
+        unit: resolvedRate.unit,
+        rate: activeRate,
+        gstRate: resolvedRate.gstRate,
+        quantity: isKg ? undefined : builderQty,
+        weightKg: isKg ? builderWeight : undefined,
+        addOns: []
+      }
+    ]);
+
+    // Clear selections except service to let cashier quickly input more items of same service
+    setBuilderProduct(null);
+    setBuilderCategory(null);
+    setBuilderQty(1);
+    setBuilderWeight(1);
+    setBuilderCustomRate(null);
   };
 
-  const resetDraftItem = () => {
-    setItemSearch("");
-    setDraftQty(1);
-    setDraftRate(0);
-    setDraftSelectedService(null);
-    setActiveItemSuggestionIndex(0);
+  const handleCustomAddItem = () => {
+    if (!customItemName.trim()) return;
+    const isKg = customItemUnit.toLowerCase() === "kg" || customItemUnit.toLowerCase() === "per kg";
+    
+    setCart([
+      ...cart,
+      {
+        lineId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        serviceName: customItemName.trim(),
+        productName: null,
+        category: null,
+        unit: customItemUnit,
+        rate: customItemRate,
+        gstRate: settings?.defaultGstRate ?? 18,
+        quantity: isKg ? undefined : customItemQty,
+        weightKg: isKg ? customItemWeight : undefined,
+        addOns: []
+      }
+    ]);
+    
+    setCustomItemName("");
+    setCustomItemQty(1);
+    setCustomItemWeight(1);
+    setCustomItemRate(0);
   };
 
-  const handleSelectSuggestion = (service: Service) => {
-    setDraftSelectedService(service);
-    setItemSearch(service.name);
-    setDraftRate(Number(service.defaultRate));
-    setDraftQty(service.pricingType === "PER_KG" ? 1 : 1);
-    setActiveItemSuggestionIndex(0);
-    setIsItemFieldFocused(false);
-  };
-
-  const handleAddDraftItem = () => {
-    const name = itemSearch.trim();
-    if (!name) return;
-
-    const selected =
-      draftSelectedService ??
-      services.find((service) => service.name.toLowerCase() === name.toLowerCase()) ??
-      null;
-    addCartItem({
-      serviceId: selected?.id ?? `custom-${Date.now()}`,
-      lineId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      serviceName: name,
-      pricingType: selected?.pricingType ?? "PER_PIECE",
-      quantity: selected?.pricingType === "PER_KG" ? 0 : Math.max(1, draftQty),
-      weightKg: selected?.pricingType === "PER_KG" ? Math.max(0.1, draftQty) : 0,
-      rate: draftRate,
-      isCustom: !selected,
-    });
-    resetDraftItem();
-    window.setTimeout(() => {
-      itemInputRef.current?.focus();
-    }, 0);
-  };
-
-  const updateCartItem = (serviceId: string, field: "quantity" | "weightKg" | "rate" | "serviceName", value: any) => {
+  const updateCartItem = (lineId: string, field: "quantity" | "weightKg" | "rate", value: number) => {
     setCart(
       cart.map((item) => {
-        if (item.lineId !== serviceId) return item;
+        if (item.lineId !== lineId) return item;
         return {
           ...item,
-          [field]: field === "serviceName" ? value : Math.max(0, parseFloat(value) || 0),
+          [field]: Math.max(0, value),
         };
       })
     );
   };
 
-  const adjustQty = (serviceId: string, delta: number) => {
-    setCart(
-      cart.map((item) => {
-        if (item.lineId !== serviceId) return item;
-        if (item.pricingType === "PER_PIECE") {
-          return { ...item, quantity: Math.max(1, item.quantity + delta) };
-        } else {
-          const newWeight = Math.max(0.1, Math.round((item.weightKg + delta * 0.5) * 100) / 100);
-          return { ...item, weightKg: newWeight };
-        }
-      })
-    );
-  };
-
-  const removeFromCart = (serviceId: string) => {
-    setCart(cart.filter((item) => item.lineId !== serviceId));
+  const removeFromCart = (lineId: string) => {
+    setCart(cart.filter((item) => item.lineId !== lineId));
   };
 
   const handleRegisterCustomer = async (e: React.FormEvent) => {
@@ -422,12 +433,16 @@ export default function NewBillPage() {
         paidAmount,
         notes,
         items: cart.map((i) => ({
-          serviceId: i.serviceId.startsWith("custom-") ? undefined : i.serviceId,
+          serviceRateId: i.serviceRateId,
           serviceName: i.serviceName,
-          pricingType: i.pricingType,
-          quantity: i.pricingType === "PER_PIECE" ? i.quantity : undefined,
-          weightKg: i.pricingType === "PER_KG" ? i.weightKg : undefined,
+          productName: i.productName,
+          category: i.category,
+          unit: i.unit,
+          quantity: i.quantity,
+          weightKg: i.weightKg,
           rate: i.rate,
+          gstRate: i.gstRate,
+          addOns: i.addOns,
         })),
       };
 
@@ -644,215 +659,442 @@ export default function NewBillPage() {
         </div>
 
 
-        {/* Card 2: Cart Items */}
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        {/* Card 2: Interactive Item Selector & Cart Items */}
+        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-6">
+          <div className="border-b border-slate-100 pb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h2 className="text-base font-bold text-slate-800">Order Items</h2>
-              <p className="mt-1 text-xs text-slate-500">Search, pick, and add items in one quick row.</p>
+              <h2 className="text-base font-bold text-slate-800">Add Order Items</h2>
+              <p className="mt-0.5 text-xs text-slate-500">Configure catalog services with product/category parameters, or add ad-hoc items.</p>
+            </div>
+            {/* Tabs for Catalog Builder vs Custom Builder */}
+            <div className="flex rounded-lg bg-slate-100 p-0.5 self-start">
+              <button
+                type="button"
+                onClick={() => setActiveBuilderTab("catalog")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                  activeBuilderTab === "catalog" ? "bg-white text-slate-800 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Sliders className="h-3.5 w-3.5" />
+                Catalog Matrix
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveBuilderTab("custom")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                  activeBuilderTab === "custom" ? "bg-white text-slate-800 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <PlusCircle className="h-3.5 w-3.5" />
+                Custom Item
+              </button>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[880px] table-fixed text-left text-sm">
-              <colgroup>
-                <col className="w-[46%]" />
-                <col className="w-[12%]" />
-                <col className="w-[14%]" />
-                <col className="w-[16%]" />
-                <col className="w-[12%]" />
-              </colgroup>
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-400 font-semibold text-xs uppercase">
-                  <th className="pb-3">Item</th>
-                  <th className="pb-3 text-center">Pieces / Weight</th>
-                  <th className="pb-3 text-right">Price</th>
-                  <th className="pb-3 text-right">Amount</th>
-                  <th className="pb-3 text-right"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                <tr className="group bg-slate-50/40">
-                  <td className="relative py-3.5 pr-4">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-slate-400" />
-                      <input
-                        id="item-search-input"
-                        ref={itemInputRef}
-                        type="text"
-                        className="h-11 w-full rounded-md border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none focus-ring"
-                        placeholder="Search item name"
-                        value={itemSearch}
-                        onChange={(e) => handleItemSearchChange(e.target.value)}
-                        onFocus={() => {
-                          setIsItemFieldFocused(true);
-                          setActiveItemSuggestionIndex(0);
+          {/* Builder Body */}
+          {activeBuilderTab === "catalog" ? (
+            <div className="space-y-4">
+              <div className="grid gap-6 md:grid-cols-3">
+                {/* Step 1: Select Service */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                    <Layers className="h-3.5 w-3.5 text-slate-400" />
+                    1. Select Service
+                  </label>
+                  <div className="h-44 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1 bg-slate-50/50">
+                    {services.map(s => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => {
+                          setBuilderService(s);
+                          setBuilderProduct(null);
+                          setBuilderCategory(null);
                         }}
-                        onBlur={() => {
-                          window.setTimeout(() => setIsItemFieldFocused(false), 150);
-                        }}
-                        onKeyDown={handleItemKeyDown}
-                      />
-                    </div>
-                  </td>
-                  <td className="py-3.5">
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold uppercase leading-none tracking-wide text-slate-500">
-                        {draftUnitLabel}
-                      </div>
+                        className={`flex w-full items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                          builderService?.id === s.id 
+                            ? "bg-brand text-white shadow-sm font-semibold" 
+                            : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/60"
+                        }`}
+                      >
+                        <span>{s.name}</span>
+                      </button>
+                    ))}
+                    {services.length === 0 && (
+                      <div className="flex h-full items-center justify-center text-xs text-slate-400 italic">No services loaded</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Step 2: Select Product */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                    <Box className="h-3.5 w-3.5 text-slate-400" />
+                    2. Select Product
+                  </label>
+                  <div className="h-44 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1 bg-slate-50/50">
+                    {!builderService ? (
+                      <div className="flex h-full items-center justify-center text-xs text-slate-400 italic">Select a service first</div>
+                    ) : availableProducts.length === 0 && !hasNullProductRate ? (
+                      <div className="flex h-full items-center justify-center text-xs text-slate-400 italic">No products configured</div>
+                    ) : (
+                      <>
+                        {hasNullProductRate && (
+                          <button
+                            type="button"
+                            onClick={() => setBuilderProduct(null)}
+                            className={`flex w-full items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                              builderProduct === null 
+                                ? "bg-brand text-white shadow-sm font-semibold" 
+                                : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/60"
+                            }`}
+                          >
+                            <span>None (Direct Rate)</span>
+                          </button>
+                        )}
+                        {availableProducts.map(p => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => setBuilderProduct(p)}
+                            className={`flex w-full items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                              builderProduct?.id === p.id 
+                                ? "bg-brand text-white shadow-sm font-semibold" 
+                                : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/60"
+                            }`}
+                          >
+                            <span>{p.name}</span>
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Step 3: Select Category */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                    <Tag className="h-3.5 w-3.5 text-slate-400" />
+                    3. Select Category
+                  </label>
+                  <div className="h-44 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1 bg-slate-50/50">
+                    {!builderService ? (
+                      <div className="flex h-full items-center justify-center text-xs text-slate-400 italic">Select a service first</div>
+                    ) : availableCategories.length === 0 && !hasNullCategoryRate ? (
+                      <div className="flex h-full items-center justify-center text-xs text-slate-400 italic">No categories configured</div>
+                    ) : (
+                      <>
+                        {hasNullCategoryRate && (
+                          <button
+                            type="button"
+                            onClick={() => setBuilderCategory(null)}
+                            className={`flex w-full items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                              builderCategory === null 
+                                ? "bg-brand text-white shadow-sm font-semibold" 
+                                : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/60"
+                            }`}
+                          >
+                            <span>None (Direct Rate)</span>
+                          </button>
+                        )}
+                        {availableCategories.map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => setBuilderCategory(c)}
+                            className={`flex w-full items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                              builderCategory?.id === c.id 
+                                ? "bg-brand text-white shadow-sm font-semibold" 
+                                : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/60"
+                            }`}
+                          >
+                            <span>{c.name}</span>
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Configure Pricing & Quantity */}
+              <div className="grid gap-6 md:grid-cols-2 mt-4 pt-4 border-t border-slate-100">
+                {/* Step 4: Configure Pricing & Quantity */}
+                <div className="space-y-4 rounded-xl bg-slate-50/50 p-4 border border-slate-200/60">
+                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                    <IndianRupee className="h-3.5 w-3.5 text-slate-400" />
+                    4. Pricing & Quantity
+                  </h3>
+                  <div className="grid grid-cols-3 gap-3">
+                    {/* Rate Input */}
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Rate (₹)</label>
                       <input
                         type="number"
                         min="0"
-                        step="0.1"
-                        className="focus-ring h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-center text-sm font-mono"
-                        value={draftQty}
-                        onChange={(e) => setDraftQty(Math.max(0, parseFloat(e.target.value) || 0))}
+                        step="0.01"
+                        className="focus-ring mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-mono text-slate-800 font-semibold"
+                        value={builderCustomRate !== null ? builderCustomRate : (resolvedRate?.rate ?? 0)}
+                        onChange={(e) => setBuilderCustomRate(Math.max(0, parseFloat(e.target.value) || 0))}
+                        disabled={!builderService || !resolvedRate}
                       />
                     </div>
-                  </td>
-                  <td className="py-3.5">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="focus-ring h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-right text-sm font-mono"
-                      value={draftRate}
-                      onChange={(e) => setDraftRate(Math.max(0, parseFloat(e.target.value) || 0))}
-                    />
-                  </td>
-                  <td className="py-3.5 text-right font-semibold text-slate-900 font-mono">
-                    ₹ {(draftQty * draftRate).toFixed(2)}
-                  </td>
-                  <td className="py-3.5 text-right">
-                    <button
-                      type="button"
-                      onClick={handleAddDraftItem}
-                      className="focus-ring inline-flex h-9 items-center rounded-md bg-brand px-3 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
-                      disabled={!itemSearch.trim()}
-                    >
-                      Add
-                    </button>
-                  </td>
-                </tr>
 
-                {cart.length > 0 ? (
-                  cart.map((item) => {
-                    const amount = item.pricingType === "PER_KG" ? item.weightKg * item.rate : item.quantity * item.rate;
-                    return (
-                      <tr key={item.lineId} className="group hover:bg-slate-50/30">
-                        <td className="py-3.5 pr-4 font-semibold text-slate-800">
-                          <input
-                            type="text"
-                            value={item.serviceName}
-                            onChange={(e) => updateCartItem(item.lineId, "serviceName", e.target.value)}
-                            className="focus-ring h-11 w-full rounded-md border border-slate-200 px-3 text-sm bg-white"
-                            placeholder="Item name"
-                          />
-                        </td>
-                        <td className="py-3.5">
-                          <div className="space-y-1">
-                            <div className="text-[11px] font-semibold uppercase leading-none tracking-wide text-slate-500">
-                              {item.pricingType === "PER_KG" ? "Weight (kg)" : "Pieces"}
-                            </div>
-                            {item.pricingType === "PER_KG" ? (
-                              <input
-                                type="number"
-                                step="0.1"
-                                min="0"
-                                className="focus-ring h-10 w-full rounded-md border border-slate-200 px-3 text-center text-sm bg-white font-mono"
-                                value={item.weightKg}
-                                onChange={(e) => updateCartItem(item.lineId, "weightKg", parseFloat(e.target.value) || 0)}
-                              />
-                            ) : (
-                              <input
-                                type="number"
-                                min="0"
-                                className="focus-ring h-10 w-full rounded-md border border-slate-200 px-3 text-center text-sm bg-white font-mono"
-                                value={item.quantity}
-                                onChange={(e) => updateCartItem(item.lineId, "quantity", parseInt(e.target.value) || 0)}
-                              />
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3.5">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            className="focus-ring h-11 w-full rounded-md border border-slate-200 px-3 text-right text-sm bg-white font-mono"
-                            value={item.rate}
-                            onChange={(e) => updateCartItem(item.lineId, "rate", parseFloat(e.target.value) || 0)}
-                          />
-                        </td>
-                        <td className="py-3.5 text-right font-semibold text-slate-900 font-mono">
-                          ₹ {amount.toFixed(2)}
-                        </td>
-                        <td className="py-3.5 text-right">
-                          <button
-                            type="button"
-                            onClick={() => removeFromCart(item.lineId)}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600 transition-colors focus-ring"
-                            title="Remove item"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan={5} className="px-0 py-8 text-center text-sm text-slate-400">
-                      No items added yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          {typeof document !== "undefined" && isItemDropdownOpen && itemDropdownStyle && createPortal(
-            <div
-              className="fixed z-50 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg"
-              style={{
-                top: itemDropdownStyle.top,
-                left: itemDropdownStyle.left,
-                width: itemDropdownStyle.width,
-              }}
-              onWheelCapture={(e) => e.stopPropagation()}
-            >
-              <div className="max-h-48 overscroll-contain overflow-y-auto divide-y divide-slate-100">
-                {itemSuggestions.length > 0 ? (
-                  itemSuggestions.map((service) => (
-                    <button
-                      key={service.id}
-                      type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        handleSelectSuggestion(service);
-                      }}
-                      className={`flex w-full items-center justify-between px-4 py-3 text-left transition-colors ${
-                        itemSuggestions[activeItemSuggestionIndex]?.id === service.id ? "bg-slate-50" : "hover:bg-slate-50"
-                      }`}
-                    >
-                      <div>
-                        <div className="text-sm font-semibold text-slate-800">{service.name}</div>
-                        <div className="text-xs text-slate-500">
-                          {service.pricingType === "PER_KG" ? "Per kg" : "Per piece"}
-                        </div>
+                    {/* Unit */}
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Unit</label>
+                      <div className="mt-1 flex h-10 items-center rounded-md border border-slate-200 bg-slate-100/60 px-3 text-sm text-slate-600 font-bold select-none capitalize">
+                        {activeUnit}
                       </div>
-                      <span className="text-xs font-mono text-slate-500">₹ {Number(service.defaultRate).toFixed(2)}</span>
-                    </button>
-                  ))
-                ) : (
-                  <div className="px-4 py-3 text-sm text-slate-500">No item matches this text.</div>
-                )}
+                    </div>
+
+                    {/* Qty / Weight */}
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                        {activeUnit.toLowerCase() === "kg" || activeUnit.toLowerCase() === "per kg" ? "Weight (kg)" : "Quantity"}
+                      </label>
+                      {activeUnit.toLowerCase() === "kg" || activeUnit.toLowerCase() === "per kg" ? (
+                        <input
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          className="focus-ring mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-mono font-semibold"
+                          value={builderWeight}
+                          onChange={(e) => setBuilderWeight(Math.max(0, parseFloat(e.target.value) || 0))}
+                          disabled={!builderService || !resolvedRate}
+                        />
+                      ) : (
+                        <input
+                          type="number"
+                          min="1"
+                          className="focus-ring mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-mono font-semibold"
+                          value={builderQty}
+                          onChange={(e) => setBuilderQty(Math.max(1, parseInt(e.target.value) || 0))}
+                          disabled={!builderService || !resolvedRate}
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Estimation and add button card */}
+                <div className="space-y-4 rounded-xl bg-slate-50 p-4 border border-slate-100 flex flex-col justify-between">
+                  {/* Calculations Preview */}
+                  <div className="flex items-center justify-between pt-2">
+                    <div className="text-xs text-slate-500 font-medium">
+                      {builderService && resolvedRate ? (
+                        <div className="space-y-0.5">
+                          <div>Base: {activeUnit.toLowerCase() === "kg" || activeUnit.toLowerCase() === "per kg" ? `${builderWeight} kg` : `${builderQty} pcs`} x ₹{activeRate}</div>
+                        </div>
+                      ) : (
+                        <span className="italic text-slate-400">Complete service match above</span>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">Estimated Total</span>
+                      <span className="text-xl font-bold text-slate-900 font-mono">
+                        ₹ {(() => {
+                          if (!builderService || !resolvedRate) return "0.00";
+                          const units = activeUnit.toLowerCase() === "kg" || activeUnit.toLowerCase() === "per kg" ? builderWeight : builderQty;
+                          return (units * activeRate).toFixed(2);
+                        })()}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleBuilderAddItem}
+                    className="focus-ring flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand text-sm font-semibold text-white shadow hover:opacity-90 disabled:opacity-50"
+                    disabled={!builderService || !resolvedRate}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add Item to Bill
+                  </button>
+                </div>
               </div>
-              <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-500">
-                Use Enter to pick the highlighted item, or + Add Item to keep the typed name.
+            </div>
+          ) : (
+            /* Custom Item Builder */
+            <div className="space-y-4 rounded-xl border border-slate-100 bg-slate-50/40 p-5">
+              <div className="grid gap-4 md:grid-cols-4">
+                <div className="space-y-1.5 col-span-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Item Name</label>
+                  <input
+                    type="text"
+                    placeholder="Enter custom service/product name..."
+                    className="focus-ring h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800"
+                    value={customItemName}
+                    onChange={(e) => setCustomItemName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Unit</label>
+                  <select
+                    className="focus-ring h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm font-semibold text-slate-700 capitalize"
+                    value={customItemUnit}
+                    onChange={(e) => setCustomItemUnit(e.target.value)}
+                  >
+                    <option value="piece">Piece</option>
+                    <option value="kg">kg</option>
+                    <option value="pair">Pair</option>
+                    <option value="set">Set</option>
+                    <option value="pack">Pack</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                    {customItemUnit.toLowerCase() === "kg" ? "Weight (kg)" : "Quantity"}
+                  </label>
+                  <input
+                    type="number"
+                    min={customItemUnit.toLowerCase() === "kg" ? "0.1" : "1"}
+                    step={customItemUnit.toLowerCase() === "kg" ? "0.1" : "1"}
+                    className="focus-ring h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-mono font-semibold"
+                    value={customItemUnit.toLowerCase() === "kg" ? customItemWeight : customItemQty}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      if (customItemUnit.toLowerCase() === "kg") {
+                        setCustomItemWeight(val);
+                      } else {
+                        setCustomItemQty(Math.max(1, Math.round(val)));
+                      }
+                    }}
+                  />
+                </div>
               </div>
-            </div>,
-            document.body
+
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pt-4 border-t border-slate-100">
+                <div className="space-y-1.5 w-full sm:w-44">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Rate (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="focus-ring h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-mono font-semibold"
+                    value={customItemRate}
+                    onChange={(e) => setCustomItemRate(Math.max(0, parseFloat(e.target.value) || 0))}
+                  />
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">Item Total</span>
+                  <span className="text-2xl font-bold text-slate-900 font-mono">
+                    ₹ {((customItemUnit.toLowerCase() === "kg" ? customItemWeight : customItemQty) * customItemRate).toFixed(2)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCustomAddItem}
+                  disabled={!customItemName.trim()}
+                  className="focus-ring flex h-10 items-center justify-center gap-2 rounded-md bg-brand px-6 text-sm font-semibold text-white shadow hover:opacity-90 disabled:opacity-50 self-end sm:self-center"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Custom Item
+                </button>
+              </div>
+            </div>
           )}
+
+          {/* Cart Table List */}
+          <div className="border-t border-slate-100 pt-6 space-y-3">
+            <h3 className="text-sm font-bold text-slate-700">Selected Items</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[880px] table-fixed text-left text-sm">
+                <colgroup>
+                  <col className="w-[42%]" />
+                  <col className="w-[18%]" />
+                  <col className="w-[16%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[10%]" />
+                </colgroup>
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-400 font-bold text-[11px] uppercase tracking-wider pb-2">
+                    <th className="pb-3">Item Description</th>
+                    <th className="pb-3 text-center">Qty / Weight</th>
+                    <th className="pb-3 text-right">Unit Rate (₹)</th>
+                    <th className="pb-3 text-right">Amount (₹)</th>
+                    <th className="pb-3 text-right"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {cart.length > 0 ? (
+                    cart.map((item) => {
+                      const isKg = item.unit.toLowerCase() === "kg" || item.unit.toLowerCase() === "per kg";
+                      const amount = calculateItemAmount(item);
+                      return (
+                        <tr key={item.lineId} className="group hover:bg-slate-50/40">
+                          <td className="py-3.5 pr-4">
+                            <div className="space-y-1">
+                              <div className="font-semibold text-slate-800 text-sm">
+                                {item.serviceName}
+                                {item.productName && ` - ${item.productName}`}
+                                {item.category && ` [${item.category}]`}
+                              </div>
+
+                            </div>
+                          </td>
+                          <td className="py-3.5 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {isKg ? (
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  min="0.1"
+                                  className="focus-ring h-9 w-20 rounded-md border border-slate-200 px-2 text-center text-sm bg-white font-mono font-semibold"
+                                  value={item.weightKg ?? 1}
+                                  onChange={(e) => updateCartItem(item.lineId, "weightKg", parseFloat(e.target.value) || 0)}
+                                />
+                              ) : (
+                                <input
+                                  type="number"
+                                  min="1"
+                                  className="focus-ring h-9 w-20 rounded-md border border-slate-200 px-2 text-center text-sm bg-white font-mono font-semibold"
+                                  value={item.quantity ?? 1}
+                                  onChange={(e) => updateCartItem(item.lineId, "quantity", parseInt(e.target.value) || 0)}
+                                />
+                              )}
+                              <span className="text-xs text-slate-500 font-bold select-none capitalize">
+                                {item.unit}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="py-3.5 text-right">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="focus-ring h-9 w-24 rounded-md border border-slate-200 px-2 text-right text-sm bg-white font-mono font-semibold"
+                              value={item.rate}
+                              onChange={(e) => updateCartItem(item.lineId, "rate", parseFloat(e.target.value) || 0)}
+                            />
+                          </td>
+                          <td className="py-3.5 text-right font-bold text-slate-900 font-mono text-sm">
+                            ₹ {amount.toFixed(2)}
+                          </td>
+                          <td className="py-3.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() => removeFromCart(item.lineId)}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600 transition-colors focus-ring"
+                              title="Remove item"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="px-0 py-8 text-center text-sm text-slate-400 font-medium italic">
+                        No billing items added yet. Configure above and click "Add Item".
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
         {/* Card 3: Checkout Calculations & Adjustments */}
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-6">

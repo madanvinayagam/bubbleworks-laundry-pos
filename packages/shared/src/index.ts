@@ -67,19 +67,26 @@ export const createCustomerSchema = z.object({
 export const createServiceSchema = z.object({
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(500).optional().default(""),
-  pricingType: z.enum(pricingTypes),
-  defaultRate: z.coerce.number().nonnegative(),
-  gstRate: z.coerce.number().min(0).max(100).default(18),
   status: z.enum(serviceStatuses).default("ACTIVE"),
 });
 
+export const orderItemAddOnSchema = z.object({
+  addOnId: z.string().uuid().optional(),
+  addOnName: z.string().trim().min(1).max(120),
+  rate: z.coerce.number().nonnegative(),
+});
+
 export const billingItemSchema = z.object({
-  serviceId: z.string().uuid().optional(),
+  serviceRateId: z.string().uuid().optional(),
   serviceName: z.string().trim().min(1).max(120),
-  pricingType: z.enum(pricingTypes),
+  productName: z.string().trim().max(120).optional().nullable(),
+  category: z.string().trim().max(120).optional().nullable(),
+  unit: z.string().trim().min(1).max(20),
   quantity: z.coerce.number().int().nonnegative().optional(),
   weightKg: z.coerce.number().nonnegative().optional(),
   rate: z.coerce.number().nonnegative(),
+  gstRate: z.coerce.number().min(0).max(100).default(18),
+  addOns: z.array(orderItemAddOnSchema).default([]),
 });
 
 export const createOrderSchema = z.object({
@@ -100,6 +107,7 @@ export type LoginInput = z.infer<typeof loginSchema>;
 export type CreateBranchInput = z.infer<typeof createBranchSchema>;
 export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
 export type CreateServiceInput = z.infer<typeof createServiceSchema>;
+export type OrderItemAddOnInput = z.infer<typeof orderItemAddOnSchema>;
 export type BillingItemInput = z.infer<typeof billingItemSchema>;
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 
@@ -119,8 +127,11 @@ export type BillingTotals = {
 };
 
 export function calculateItemAmount(item: BillingItemInput): number {
-  const unitCount = item.pricingType === "PER_KG" ? item.weightKg ?? 0 : item.quantity ?? 0;
-  return roundMoney(unitCount * item.rate);
+  const isKg = item.unit.toLowerCase() === "kg" || item.unit.toLowerCase() === "per kg";
+  const unitCount = isKg ? item.weightKg ?? 0 : item.quantity ?? 0;
+  const baseAmount = unitCount * item.rate;
+  const addOnsAmount = (item.addOns ?? []).reduce((sum, addOn) => sum + (unitCount * addOn.rate), 0);
+  return roundMoney(baseAmount + addOnsAmount);
 }
 
 export function calculateBillingTotals(input: {

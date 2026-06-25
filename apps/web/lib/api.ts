@@ -1,4 +1,5 @@
 import { loadSession } from "./session";
+import type { CreateOrderInput } from "@bubbleworks/shared";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -49,9 +50,48 @@ export type Service = {
   id: string;
   name: string;
   description: string;
-  pricingType: "PER_PIECE" | "PER_KG";
-  defaultRate: number;
+  status: "ACTIVE" | "INACTIVE";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Product = {
+  id: string;
+  name: string;
+  description: string;
+  status: "ACTIVE" | "INACTIVE";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ItemCategory = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ServiceRate = {
+  id: string;
+  serviceId: string;
+  productId: string | null;
+  categoryId: string | null;
+  unit: string;
+  rate: number;
   gstRate: number;
+  status: "ACTIVE" | "INACTIVE";
+  createdAt: string;
+  updatedAt: string;
+  service?: { id: string; name: string };
+  product?: { id: string; name: string } | null;
+  category?: { id: string; name: string } | null;
+};
+
+export type AddOn = {
+  id: string;
+  name: string;
+  rate: number;
+  unit: string;
   status: "ACTIVE" | "INACTIVE";
   createdAt: string;
   updatedAt: string;
@@ -132,6 +172,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem("bubbleworks_session");
+        window.location.href = "/login";
+      }
+    }
     let message = "An error occurred";
     let details: unknown;
     try {
@@ -377,27 +423,7 @@ export type Order = {
   };
 };
 
-export type OrderItemInput = {
-  serviceId?: string;
-  serviceName: string;
-  pricingType: "PER_PIECE" | "PER_KG";
-  quantity?: number;
-  weightKg?: number;
-  rate: number;
-};
-
-export type CreateOrderInput = {
-  branchId: string;
-  customerId: string;
-  orderDate?: string;
-  expectedDeliveryDate: string;
-  discountAmount: number;
-  gstRate: number;
-  paymentMethod: "CASH" | "UPI" | "CARD" | "CREDIT";
-  paidAmount: number;
-  notes?: string;
-  items: OrderItemInput[];
-};
+export type { CreateOrderInput } from "@bubbleworks/shared";
 
 // 7. Orders Endpoints
 export async function getOrders(params: {
@@ -588,4 +614,120 @@ export async function getPublicOrderStatus(billNumber: string, mobile: string): 
     throw new Error(message);
   }
   return response.json();
+}
+
+// 8. Products Endpoints
+export async function getProducts(): Promise<{ products: Product[] }> {
+  return request<{ products: Product[] }>("/api/v1/products");
+}
+
+export async function createProduct(input: Omit<Product, "id" | "createdAt" | "updatedAt">): Promise<{ product: Product }> {
+  return request<{ product: Product }>("/api/v1/products", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateProduct(id: string, input: Partial<Omit<Product, "id" | "createdAt" | "updatedAt">>): Promise<{ product: Product }> {
+  return request<{ product: Product }>(`/api/v1/products/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteProduct(id: string): Promise<void> {
+  return request<void>(`/api/v1/products/${id}`, {
+    method: "DELETE",
+  });
+}
+
+// 9. Categories Endpoints
+export async function getCategories(): Promise<{ categories: ItemCategory[] }> {
+  return request<{ categories: ItemCategory[] }>("/api/v1/categories");
+}
+
+export async function createCategory(input: { name: string }): Promise<{ category: ItemCategory }> {
+  return request<{ category: ItemCategory }>("/api/v1/categories", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateCategory(id: string, input: { name: string }): Promise<{ category: ItemCategory }> {
+  return request<{ category: ItemCategory }>(`/api/v1/categories/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteCategory(id: string): Promise<void> {
+  return request<void>(`/api/v1/categories/${id}`, {
+    method: "DELETE",
+  });
+}
+
+// 10. Rates Endpoints
+export async function getRates(): Promise<{ rates: ServiceRate[] }> {
+  return request<{ rates: ServiceRate[] }>("/api/v1/rates");
+}
+
+export async function createRate(input: {
+  serviceId: string;
+  productId?: string | null;
+  categoryId?: string | null;
+  unit: string;
+  rate: number;
+  gstRate?: number;
+  status?: "ACTIVE" | "INACTIVE";
+}): Promise<{ rate: ServiceRate }> {
+  return request<{ rate: ServiceRate }>("/api/v1/rates", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateRate(id: string, input: Partial<{
+  serviceId: string;
+  productId: string | null;
+  categoryId: string | null;
+  unit: string;
+  rate: number;
+  gstRate: number;
+  status: "ACTIVE" | "INACTIVE";
+}>): Promise<{ rate: ServiceRate }> {
+  return request<{ rate: ServiceRate }>(`/api/v1/rates/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteRate(id: string): Promise<void> {
+  return request<void>(`/api/v1/rates/${id}`, {
+    method: "DELETE",
+  });
+}
+
+// 11. AddOns Endpoints
+export async function getAddOns(): Promise<{ addons: AddOn[] }> {
+  return request<{ addons: AddOn[] }>("/api/v1/addons");
+}
+
+export async function createAddOn(input: Omit<AddOn, "id" | "createdAt" | "updatedAt">): Promise<{ addon: AddOn }> {
+  return request<{ addon: AddOn }>("/api/v1/addons", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateAddOn(id: string, input: Partial<Omit<AddOn, "id" | "createdAt" | "updatedAt">>): Promise<{ addon: AddOn }> {
+  return request<{ addon: AddOn }>(`/api/v1/addons/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteAddOn(id: string): Promise<void> {
+  return request<void>(`/api/v1/addons/${id}`, {
+    method: "DELETE",
+  });
 }
