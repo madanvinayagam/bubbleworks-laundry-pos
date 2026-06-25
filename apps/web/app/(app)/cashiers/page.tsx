@@ -38,9 +38,7 @@ export default function CashiersPage() {
   // Modal states
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [isPasswordOpen, setIsPasswordOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showResetPassword, setShowResetPassword] = useState(false);
   
   // Form input states
   const [name, setName] = useState("");
@@ -97,13 +95,7 @@ export default function CashiersPage() {
     setIsFormOpen(true);
   };
 
-  const handleOpenPassword = (user: User) => {
-    setSelectedUser(user);
-    setPassword("");
-    setShowResetPassword(false);
-    setError("");
-    setIsPasswordOpen(true);
-  };
+
 
   const handleToggleStatus = async (user: User) => {
     try {
@@ -125,7 +117,11 @@ export default function CashiersPage() {
 
     try {
       if (selectedUser) {
-        await updateUser(selectedUser.id, { name, mobile, username, branchId });
+        const updatePayload: any = { name, mobile, username, branchId };
+        if (password && password.trim() !== "") {
+          updatePayload.password = password;
+        }
+        await updateUser(selectedUser.id, updatePayload);
       } else {
         if (!password) {
           throw new Error("Password is required for new Cashiers");
@@ -141,22 +137,7 @@ export default function CashiersPage() {
     }
   };
 
-  const handleResetPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedUser) return;
-    
-    setError("");
-    setFormLoading(true);
-    try {
-      await resetUserPassword(selectedUser.id, password);
-      setIsPasswordOpen(false);
-      alert("Password reset successfully");
-    } catch (err: any) {
-      setError(err.message || "Failed to reset password");
-    } finally {
-      setFormLoading(false);
-    }
-  };
+
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return "Never";
@@ -192,7 +173,7 @@ export default function CashiersPage() {
         </div>
       )}
 
-      {error && !isFormOpen && !isPasswordOpen && (
+      {error && !isFormOpen && (
         <div className="rounded-md bg-[#fff1ef] p-4 text-sm text-danger border border-danger/10">
           {error}
         </div>
@@ -277,13 +258,6 @@ export default function CashiersPage() {
                             )}
                           </button>
                           <button
-                            onClick={() => handleOpenPassword(user)}
-                            className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white hover:bg-background text-muted"
-                            title="Reset Password"
-                          >
-                            <Key size={14} />
-                          </button>
-                          <button
                             onClick={() => handleOpenEdit(user)}
                             className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white hover:bg-background text-muted"
                             title="Edit Cashier"
@@ -361,28 +335,28 @@ export default function CashiersPage() {
                 />
               </div>
               
-              {!selectedUser && (
-                <div>
-                  <label className="block text-sm font-medium mb-1">Login Password (Min 8 chars)</label>
-                  <div className="relative">
-                    <input
-                      required
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="focus-ring h-10 w-full rounded-md border border-line pl-3 pr-10 text-sm bg-white"
-                      placeholder="Enter password"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted hover:text-foreground"
-                    >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  {selectedUser ? "New Password (Leave blank to keep unchanged, Min 8 chars)" : "Login Password (Min 8 chars)"}
+                </label>
+                <div className="relative">
+                  <input
+                    required={!selectedUser}
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="focus-ring h-10 w-full rounded-md border border-line pl-3 pr-10 text-sm bg-white"
+                    placeholder={selectedUser ? "Leave blank to keep unchanged" : "Enter password"}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted hover:text-foreground"
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
                 </div>
-              )}
+              </div>
 
               <div>
                 <label className="block text-sm font-medium mb-1">Assigned Branch</label>
@@ -421,64 +395,7 @@ export default function CashiersPage() {
         </div>
       )}
 
-      {/* Reset Password Modal Dialog */}
-      {isPasswordOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 animate-fade-in">
-          <div className="w-full max-w-md rounded-lg border border-line bg-surface p-6 shadow-xl relative animate-scale-in">
-            <button 
-              onClick={() => setIsPasswordOpen(false)}
-              className="absolute right-4 top-4 text-muted hover:text-ink focus-ring rounded-md p-1"
-            >
-              <X size={18} />
-            </button>
-            <h2 className="text-lg font-semibold text-ink mb-1">Reset Password</h2>
-            <p className="text-xs text-muted mb-4">Set a new login password for {selectedUser?.name}</p>
-            {error && (
-              <div className="mb-4 rounded-md bg-[#fff1ef] px-3 py-2 text-sm text-danger border border-danger/10">
-                {error}
-              </div>
-            )}
-            <form onSubmit={handleResetPassword} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">New Password (Min 8 chars)</label>
-                <div className="relative">
-                  <input
-                    required
-                    type={showResetPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="focus-ring h-10 w-full rounded-md border border-line pl-3 pr-10 text-sm bg-white"
-                    placeholder="Enter new password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowResetPassword(!showResetPassword)}
-                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted hover:text-foreground"
-                  >
-                    {showResetPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsPasswordOpen(false)}
-                  className="focus-ring h-10 rounded-md border border-line bg-white px-4 text-sm font-semibold hover:bg-background"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={formLoading}
-                  className="focus-ring h-10 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
-                >
-                  {formLoading ? "Updating..." : "Reset Password"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+
     </section>
   );
 }

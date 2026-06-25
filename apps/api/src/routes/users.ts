@@ -26,6 +26,7 @@ const updateUserSchema = z.object({
   mobile: z.string().trim().min(7).max(20).optional(),
   username: z.string().trim().min(3).max(80).optional(),
   branchId: z.string().uuid().optional(),
+  password: z.string().min(8).max(200).optional(),
 });
 
 const resetPasswordSchema = z.object({
@@ -123,7 +124,7 @@ usersRouter.post(
 usersRouter.patch(
   "/:id",
   asyncHandler(async (req, res) => {
-    const input = updateUserSchema.parse(req.body);
+    const { password, ...otherInput } = updateUserSchema.parse(req.body);
 
     const user = await prisma.user.findUnique({
       where: { id: req.params.id },
@@ -132,27 +133,32 @@ usersRouter.patch(
       throw new HttpError(404, "User not found");
     }
 
-    if (input.username && input.username !== user.username) {
+    if (otherInput.username && otherInput.username !== user.username) {
       const existingUser = await prisma.user.findUnique({
-        where: { username: input.username },
+        where: { username: otherInput.username },
       });
       if (existingUser) {
         throw new HttpError(409, "Username already exists");
       }
     }
 
-    if (input.branchId) {
+    if (otherInput.branchId) {
       const branch = await prisma.branch.findUnique({
-        where: { id: input.branchId },
+        where: { id: otherInput.branchId },
       });
       if (!branch) {
         throw new HttpError(400, "Branch not found");
       }
     }
 
+    const updateData: any = { ...otherInput };
+    if (password) {
+      updateData.passwordHash = await bcrypt.hash(password, 12);
+    }
+
     const updatedUser = await prisma.user.update({
       where: { id: req.params.id },
-      data: input,
+      data: updateData,
       select: {
         id: true,
         name: true,

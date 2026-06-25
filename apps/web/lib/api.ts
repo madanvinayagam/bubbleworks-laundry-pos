@@ -218,7 +218,7 @@ export async function createCashier(input: { name: string; mobile: string; usern
   });
 }
 
-export async function updateUser(id: string, input: Partial<Omit<User, "id" | "role" | "status" | "createdAt">>): Promise<{ user: User }> {
+export async function updateUser(id: string, input: Partial<Omit<User, "id" | "role" | "status" | "createdAt">> & { password?: string }): Promise<{ user: User }> {
   return request<{ user: User }>(`/api/v1/users/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),
