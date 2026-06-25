@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { 
   getServices, 
@@ -22,6 +22,130 @@ import { loadSession } from "@/lib/session";
 import { calculateBillingTotals, calculateItemAmount, BillingItemInput, PaymentMethod } from "@bubbleworks/shared";
 import { Search, Plus, Trash2, CheckCircle2, User, Loader2, Printer, Sparkles, Layers, Box, Tag, Sliders, CheckSquare, PlusCircle, IndianRupee } from "lucide-react";
 
+interface SearchableSelectProps<T> {
+  options: T[];
+  getOptionLabel: (option: T) => string;
+  getOptionValue: (option: T) => string;
+  value: T | null;
+  onChange: (value: T | null) => void;
+  placeholder: string;
+  disabled?: boolean;
+  showNoneOption?: boolean;
+  noneLabel?: string;
+}
+
+function SearchableSelect<T>({
+  options,
+  getOptionLabel,
+  getOptionValue,
+  value,
+  onChange,
+  placeholder,
+  disabled = false,
+  showNoneOption = false,
+  noneLabel = "None"
+}: SearchableSelectProps<T>) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setSearch(value ? getOptionLabel(value) : "");
+  }, [value, getOptionLabel]);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+        setSearch(value ? getOptionLabel(value) : "");
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [value, getOptionLabel]);
+
+  const filtered = options.filter(option => 
+    getOptionLabel(option).toLowerCase().includes(search.toLowerCase())
+  );
+
+  const items = showNoneOption ? [null, ...filtered] : filtered;
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (disabled) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setIsOpen(true);
+      setHighlightedIndex((prev) => (prev + 1) % Math.max(1, items.length));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setIsOpen(true);
+      setHighlightedIndex((prev) => (prev - 1 + items.length) % Math.max(1, items.length));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (isOpen && highlightedIndex >= 0 && highlightedIndex < items.length) {
+        onChange(items[highlightedIndex] as T | null);
+        setIsOpen(false);
+      } else {
+        setIsOpen(true);
+      }
+    } else if (e.key === "Escape") {
+      setIsOpen(false);
+      setSearch(value ? getOptionLabel(value) : "");
+    }
+  };
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <input
+        type="text"
+        disabled={disabled}
+        placeholder={placeholder}
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value);
+          setIsOpen(true);
+          setHighlightedIndex(-1);
+        }}
+        onFocus={() => setIsOpen(true)}
+        onKeyDown={handleKeyDown}
+        className="focus-ring h-10 w-full rounded-md border border-slate-200 px-3 text-sm bg-white disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed font-medium text-slate-800"
+      />
+      {isOpen && !disabled && (
+        <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg">
+          {items.map((item, idx) => {
+            const isNone = item === null;
+            const isSelected = isNone ? value === null : (value ? getOptionValue(value) === getOptionValue(item) : false);
+            const isHighlighted = highlightedIndex === idx;
+            return (
+              <button
+                key={isNone ? "none-val" : getOptionValue(item)}
+                type="button"
+                onClick={() => {
+                  onChange(item as T | null);
+                  setIsOpen(false);
+                }}
+                className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${
+                  isHighlighted 
+                    ? "bg-slate-100 text-slate-900" 
+                    : isSelected 
+                      ? "bg-brand/5 text-brand font-bold" 
+                      : "text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {isNone ? noneLabel : getOptionLabel(item)}
+              </button>
+            );
+          })}
+          {items.length === 0 && (
+            <div className="px-3 py-2 text-sm text-slate-400 italic">No matches found</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function NewBillPage() {
   const router = useRouter();
   const [session, setSession] = useState<any>(null);
@@ -31,6 +155,7 @@ export default function NewBillPage() {
   const [rates, setRates] = useState<ServiceRate[]>([]);
   const [settings, setSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [builderUnit, setBuilderUnit] = useState("piece");
 
   // Customer State
   const [customerSearch, setCustomerSearch] = useState("");
@@ -78,8 +203,6 @@ export default function NewBillPage() {
   const [customItemRate, setCustomItemRate] = useState(0);
   
   const [discountAmount, setDiscountAmount] = useState<number>(0);
-  const [paidAmount, setPaidAmount] = useState<number>(0);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [notes, setNotes] = useState("");
   const [orderDate, setOrderDate] = useState("");
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("");
@@ -89,6 +212,9 @@ export default function NewBillPage() {
 
   // Round-Off state is manual only
   const [roundOff, setRoundOff] = useState<number>(0);
+
+  // GST rate — initialized from admin settings, overridable per bill
+  const [gstRate, setGstRate] = useState<number>(18);
 
 
 
@@ -137,6 +263,7 @@ export default function NewBillPage() {
         setCategories(catList);
         setRates(rateList.filter((r) => r.status === "ACTIVE"));
         setSettings(set);
+        setGstRate(set.defaultGstRate ?? 18);
         return getOrderNumberPreview(s?.user?.branchId || undefined);
       })
       .then((preview) => {
@@ -155,7 +282,7 @@ export default function NewBillPage() {
     if (saveError) {
       setSaveError("");
     }
-  }, [selectedCustomer, cart, discountAmount, roundOff, paidAmount, paymentMethod, notes, orderDate, expectedDeliveryDate]);
+  }, [selectedCustomer, cart, discountAmount, roundOff, notes, orderDate, expectedDeliveryDate]);
 
   // Customer search debounced suggestions
   useEffect(() => {
@@ -191,17 +318,9 @@ export default function NewBillPage() {
   const totals = calculateBillingTotals({
     items: billingItems,
     discountAmount,
-    gstRate: settings?.defaultGstRate ?? 18,
-    paidAmount,
+    gstRate,
     roundOff,
   });
-
-  // Auto-update paidAmount if pay in full is appropriate (non-credit modes)
-  useEffect(() => {
-    if (paymentMethod !== "CREDIT") {
-      setPaidAmount(totals.grandTotal);
-    }
-  }, [totals.grandTotal, paymentMethod]);
 
   // Keyboard Shortcuts (Alt+S = save/print, Alt+C = focus customer)
   useEffect(() => {
@@ -218,7 +337,7 @@ export default function NewBillPage() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [cart, selectedCustomer, discountAmount, paidAmount, paymentMethod, notes, expectedDeliveryDate, roundOff]);
+  }, [cart, selectedCustomer, discountAmount, notes, expectedDeliveryDate, roundOff]);
 
     // Auto-selection filters for step-by-step matrix selection
   const serviceRates = rates.filter(r => r.serviceId === builderService?.id);
@@ -300,7 +419,14 @@ export default function NewBillPage() {
   })();
 
   const activeRate = builderCustomRate !== null ? builderCustomRate : (resolvedRate?.rate ?? 0);
-  const activeUnit = resolvedRate?.unit ?? "piece";
+
+  useEffect(() => {
+    if (resolvedRate) {
+      setBuilderUnit(resolvedRate.unit);
+    } else {
+      setBuilderUnit("piece");
+    }
+  }, [resolvedRate]);
 
   if (loading) {
     return (
@@ -315,7 +441,7 @@ export default function NewBillPage() {
 
   const handleBuilderAddItem = () => {
     if (!builderService || !resolvedRate) return;
-    const isKg = resolvedRate.unit.toLowerCase() === "kg" || resolvedRate.unit.toLowerCase() === "per kg";
+    const isKg = builderUnit.toLowerCase() === "kg" || builderUnit.toLowerCase() === "per kg";
     
     setCart([
       ...cart,
@@ -325,7 +451,7 @@ export default function NewBillPage() {
         serviceName: builderService.name,
         productName: builderProduct?.name || null,
         category: builderCategory?.name || null,
-        unit: resolvedRate.unit,
+        unit: builderUnit,
         rate: activeRate,
         gstRate: resolvedRate.gstRate,
         quantity: isKg ? undefined : builderQty,
@@ -355,7 +481,7 @@ export default function NewBillPage() {
         category: null,
         unit: customItemUnit,
         rate: customItemRate,
-        gstRate: settings?.defaultGstRate ?? 18,
+        gstRate,
         quantity: isKg ? undefined : customItemQty,
         weightKg: isKg ? customItemWeight : undefined,
         addOns: []
@@ -428,9 +554,9 @@ export default function NewBillPage() {
         expectedDeliveryDate: new Date(expectedDeliveryDate).toISOString(),
         discountAmount,
         roundOff,
-        gstRate: settings?.defaultGstRate ?? 18,
-        paymentMethod,
-        paidAmount,
+        gstRate,
+        paymentMethod: "CASH" as const,
+        paidAmount: totals.grandTotal,
         notes,
         items: cart.map((i) => ({
           serviceRateId: i.serviceRateId,
@@ -565,7 +691,6 @@ export default function NewBillPage() {
                         setCustomerSearch("");
                         setCart([]);
                         setDiscountAmount(0);
-                        setPaidAmount(0);
                       }
                     }}
                   />
@@ -693,222 +818,186 @@ export default function NewBillPage() {
 
           {/* Builder Body */}
           {activeBuilderTab === "catalog" ? (
-            <div className="space-y-4">
-              <div className="grid gap-6 md:grid-cols-3">
-                {/* Step 1: Select Service */}
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+            <div className="grid gap-6 md:grid-cols-2">
+              {/* Left Column: Form Controls */}
+              <div className="space-y-4 rounded-xl bg-slate-50/50 p-5 border border-slate-200/60">
+                {/* Service Selection */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1">
                     <Layers className="h-3.5 w-3.5 text-slate-400" />
-                    1. Select Service
+                    Service Name
                   </label>
-                  <div className="h-44 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1 bg-slate-50/50">
-                    {services.map(s => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => {
-                          setBuilderService(s);
-                          setBuilderProduct(null);
-                          setBuilderCategory(null);
-                        }}
-                        className={`flex w-full items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-all ${
-                          builderService?.id === s.id 
-                            ? "bg-brand text-white shadow-sm font-semibold" 
-                            : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/60"
-                        }`}
-                      >
-                        <span>{s.name}</span>
-                      </button>
-                    ))}
-                    {services.length === 0 && (
-                      <div className="flex h-full items-center justify-center text-xs text-slate-400 italic">No services loaded</div>
-                    )}
+                  <SearchableSelect
+                    options={services}
+                    getOptionLabel={(s) => s.name}
+                    getOptionValue={(s) => s.id}
+                    value={builderService}
+                    onChange={(s) => {
+                      setBuilderService(s);
+                      setBuilderProduct(null);
+                      setBuilderCategory(null);
+                    }}
+                    placeholder="Search & select service..."
+                  />
+                </div>
+
+                {/* Product & Category Selection */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1">
+                      <Box className="h-3.5 w-3.5 text-slate-400" />
+                      Product Variant
+                    </label>
+                    <SearchableSelect
+                      options={availableProducts}
+                      getOptionLabel={(p) => p.name}
+                      getOptionValue={(p) => p.id}
+                      value={builderProduct}
+                      onChange={(p) => {
+                        setBuilderProduct(p);
+                        setBuilderCategory(null);
+                      }}
+                      placeholder={builderService ? "Select product..." : "Select service first"}
+                      disabled={!builderService}
+                      showNoneOption={hasNullProductRate}
+                      noneLabel="None (Direct Rate)"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1">
+                      <Tag className="h-3.5 w-3.5 text-slate-400" />
+                      Category
+                    </label>
+                    <SearchableSelect
+                      options={availableCategories}
+                      getOptionLabel={(c) => c.name}
+                      getOptionValue={(c) => c.id}
+                      value={builderCategory}
+                      onChange={(c) => setBuilderCategory(c)}
+                      placeholder={builderProduct ? "Select category..." : builderService ? "Select product first" : "Select service first"}
+                      disabled={!builderService || !builderProduct}
+                      showNoneOption={hasNullCategoryRate}
+                      noneLabel="None (Direct Rate)"
+                    />
                   </div>
                 </div>
 
-                {/* Step 2: Select Product */}
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                    <Box className="h-3.5 w-3.5 text-slate-400" />
-                    2. Select Product
-                  </label>
-                  <div className="h-44 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1 bg-slate-50/50">
-                    {!builderService ? (
-                      <div className="flex h-full items-center justify-center text-xs text-slate-400 italic">Select a service first</div>
-                    ) : availableProducts.length === 0 && !hasNullProductRate ? (
-                      <div className="flex h-full items-center justify-center text-xs text-slate-400 italic">No products configured</div>
-                    ) : (
-                      <>
-                        {hasNullProductRate && (
-                          <button
-                            type="button"
-                            onClick={() => setBuilderProduct(null)}
-                            className={`flex w-full items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-all ${
-                              builderProduct === null 
-                                ? "bg-brand text-white shadow-sm font-semibold" 
-                                : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/60"
-                            }`}
-                          >
-                            <span>None (Direct Rate)</span>
-                          </button>
-                        )}
-                        {availableProducts.map(p => (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => setBuilderProduct(p)}
-                            className={`flex w-full items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-all ${
-                              builderProduct?.id === p.id 
-                                ? "bg-brand text-white shadow-sm font-semibold" 
-                                : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/60"
-                            }`}
-                          >
-                            <span>{p.name}</span>
-                          </button>
-                        ))}
-                      </>
-                    )}
+                {/* Pricing, Unit & Quantity */}
+                <div className="grid grid-cols-3 gap-3 pt-4 border-t border-slate-200/40">
+                  {/* Rate Input */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Rate (₹)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="focus-ring h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-mono text-slate-800 font-semibold"
+                      value={builderCustomRate !== null ? builderCustomRate : (resolvedRate?.rate ?? 0)}
+                      onChange={(e) => setBuilderCustomRate(Math.max(0, parseFloat(e.target.value) || 0))}
+                      disabled={!builderService || !resolvedRate}
+                    />
                   </div>
-                </div>
 
-                {/* Step 3: Select Category */}
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                    <Tag className="h-3.5 w-3.5 text-slate-400" />
-                    3. Select Category
-                  </label>
-                  <div className="h-44 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1 bg-slate-50/50">
-                    {!builderService ? (
-                      <div className="flex h-full items-center justify-center text-xs text-slate-400 italic">Select a service first</div>
-                    ) : availableCategories.length === 0 && !hasNullCategoryRate ? (
-                      <div className="flex h-full items-center justify-center text-xs text-slate-400 italic">No categories configured</div>
+                  {/* Unit Selector */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Unit</label>
+                    <select
+                      className="focus-ring h-10 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm font-semibold text-slate-700 capitalize disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
+                      value={builderUnit}
+                      onChange={(e) => setBuilderUnit(e.target.value)}
+                      disabled={!builderService || !resolvedRate}
+                    >
+                      <option value="piece">Piece</option>
+                      <option value="kg">kg</option>
+                      <option value="pair">Pair</option>
+                      <option value="set">Set</option>
+                      <option value="pack">Pack</option>
+                    </select>
+                  </div>
+
+                  {/* Quantity / Weight Input */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                      {builderUnit.toLowerCase() === "kg" || builderUnit.toLowerCase() === "per kg" ? "Weight (kg)" : "Quantity"}
+                    </label>
+                    {builderUnit.toLowerCase() === "kg" || builderUnit.toLowerCase() === "per kg" ? (
+                      <input
+                        type="number"
+                        min="0.1"
+                        step="0.1"
+                        className="focus-ring h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-mono font-semibold"
+                        value={builderWeight}
+                        onChange={(e) => setBuilderWeight(Math.max(0, parseFloat(e.target.value) || 0))}
+                        disabled={!builderService || !resolvedRate}
+                      />
                     ) : (
-                      <>
-                        {hasNullCategoryRate && (
-                          <button
-                            type="button"
-                            onClick={() => setBuilderCategory(null)}
-                            className={`flex w-full items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-all ${
-                              builderCategory === null 
-                                ? "bg-brand text-white shadow-sm font-semibold" 
-                                : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/60"
-                            }`}
-                          >
-                            <span>None (Direct Rate)</span>
-                          </button>
-                        )}
-                        {availableCategories.map(c => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => setBuilderCategory(c)}
-                            className={`flex w-full items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-all ${
-                              builderCategory?.id === c.id 
-                                ? "bg-brand text-white shadow-sm font-semibold" 
-                                : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/60"
-                            }`}
-                          >
-                            <span>{c.name}</span>
-                          </button>
-                        ))}
-                      </>
+                      <input
+                        type="number"
+                        min="1"
+                        className="focus-ring h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-mono font-semibold"
+                        value={builderQty}
+                        onChange={(e) => setBuilderQty(Math.max(1, parseInt(e.target.value) || 0))}
+                        disabled={!builderService || !resolvedRate}
+                      />
                     )}
                   </div>
                 </div>
               </div>
 
-              {/* Configure Pricing & Quantity */}
-              <div className="grid gap-6 md:grid-cols-2 mt-4 pt-4 border-t border-slate-100">
-                {/* Step 4: Configure Pricing & Quantity */}
-                <div className="space-y-4 rounded-xl bg-slate-50/50 p-4 border border-slate-200/60">
-                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                    <IndianRupee className="h-3.5 w-3.5 text-slate-400" />
-                    4. Pricing & Quantity
-                  </h3>
-                  <div className="grid grid-cols-3 gap-3">
-                    {/* Rate Input */}
-                    <div>
-                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Rate (₹)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="focus-ring mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-mono text-slate-800 font-semibold"
-                        value={builderCustomRate !== null ? builderCustomRate : (resolvedRate?.rate ?? 0)}
-                        onChange={(e) => setBuilderCustomRate(Math.max(0, parseFloat(e.target.value) || 0))}
-                        disabled={!builderService || !resolvedRate}
-                      />
-                    </div>
-
-                    {/* Unit */}
-                    <div>
-                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Unit</label>
-                      <div className="mt-1 flex h-10 items-center rounded-md border border-slate-200 bg-slate-100/60 px-3 text-sm text-slate-600 font-bold select-none capitalize">
-                        {activeUnit}
+              {/* Right Column: Estimation Preview and Action Button */}
+              <div className="space-y-4 rounded-xl bg-slate-50 p-6 border border-slate-100 flex flex-col justify-between">
+                <div>
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Calculations Preview</h3>
+                  <div className="text-xs text-slate-500 font-medium bg-white p-3 rounded-lg border border-slate-200/60 min-h-16 flex items-center justify-center">
+                    {builderService && resolvedRate ? (
+                      <div className="w-full space-y-1 text-slate-600 text-sm">
+                        <div className="flex justify-between">
+                          <span>Service Selected:</span>
+                          <span className="font-semibold text-slate-800">{builderService.name}</span>
+                        </div>
+                        {builderProduct && (
+                          <div className="flex justify-between">
+                            <span>Product:</span>
+                            <span className="font-semibold text-slate-800">{builderProduct.name}</span>
+                          </div>
+                        )}
+                        {builderCategory && (
+                          <div className="flex justify-between">
+                            <span>Category:</span>
+                            <span className="font-semibold text-slate-800">{builderCategory.name}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between border-t border-slate-100 pt-1.5 mt-1.5 text-xs text-slate-500 font-normal">
+                          <span>Formula:</span>
+                          <span>{builderUnit.toLowerCase() === "kg" || builderUnit.toLowerCase() === "per kg" ? `${builderWeight} kg` : `${builderQty} pcs`} x ₹{activeRate}</span>
+                        </div>
                       </div>
-                    </div>
-
-                    {/* Qty / Weight */}
-                    <div>
-                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                        {activeUnit.toLowerCase() === "kg" || activeUnit.toLowerCase() === "per kg" ? "Weight (kg)" : "Quantity"}
-                      </label>
-                      {activeUnit.toLowerCase() === "kg" || activeUnit.toLowerCase() === "per kg" ? (
-                        <input
-                          type="number"
-                          min="0.1"
-                          step="0.1"
-                          className="focus-ring mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-mono font-semibold"
-                          value={builderWeight}
-                          onChange={(e) => setBuilderWeight(Math.max(0, parseFloat(e.target.value) || 0))}
-                          disabled={!builderService || !resolvedRate}
-                        />
-                      ) : (
-                        <input
-                          type="number"
-                          min="1"
-                          className="focus-ring mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-mono font-semibold"
-                          value={builderQty}
-                          onChange={(e) => setBuilderQty(Math.max(1, parseInt(e.target.value) || 0))}
-                          disabled={!builderService || !resolvedRate}
-                        />
-                      )}
-                    </div>
+                    ) : (
+                      <span className="italic text-slate-400">Complete service matches above</span>
+                    )}
                   </div>
                 </div>
 
-                {/* Estimation and add button card */}
-                <div className="space-y-4 rounded-xl bg-slate-50 p-4 border border-slate-100 flex flex-col justify-between">
-                  {/* Calculations Preview */}
-                  <div className="flex items-center justify-between pt-2">
-                    <div className="text-xs text-slate-500 font-medium">
-                      {builderService && resolvedRate ? (
-                        <div className="space-y-0.5">
-                          <div>Base: {activeUnit.toLowerCase() === "kg" || activeUnit.toLowerCase() === "per kg" ? `${builderWeight} kg` : `${builderQty} pcs`} x ₹{activeRate}</div>
-                        </div>
-                      ) : (
-                        <span className="italic text-slate-400">Complete service match above</span>
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">Estimated Total</span>
-                      <span className="text-xl font-bold text-slate-900 font-mono">
-                        ₹ {(() => {
-                          if (!builderService || !resolvedRate) return "0.00";
-                          const units = activeUnit.toLowerCase() === "kg" || activeUnit.toLowerCase() === "per kg" ? builderWeight : builderQty;
-                          return (units * activeRate).toFixed(2);
-                        })()}
-                      </span>
-                    </div>
+                <div className="space-y-3 pt-2">
+                  <div className="flex items-end justify-between">
+                    <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">Estimated Total</span>
+                    <span className="text-2xl font-bold text-slate-900 font-mono">
+                      ₹ {(() => {
+                        if (!builderService || !resolvedRate) return "0.00";
+                        const units = builderUnit.toLowerCase() === "kg" || builderUnit.toLowerCase() === "per kg" ? builderWeight : builderQty;
+                        return (units * activeRate).toFixed(2);
+                      })()}
+                    </span>
                   </div>
 
                   <button
                     type="button"
                     onClick={handleBuilderAddItem}
-                    className="focus-ring flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand text-sm font-semibold text-white shadow hover:opacity-90 disabled:opacity-50"
+                    className="focus-ring flex h-11 w-full items-center justify-center gap-2 rounded-md bg-brand text-sm font-semibold text-white shadow-md hover:opacity-90 disabled:opacity-50 transition-opacity"
                     disabled={!builderService || !resolvedRate}
                   >
-                    <Plus className="h-4 w-4" />
+                    <Plus className="h-4.5 w-4.5" />
                     Add Item to Bill
                   </button>
                 </div>
@@ -1096,144 +1185,111 @@ export default function NewBillPage() {
             </div>
           </div>
         </div>
-        {/* Card 3: Checkout Calculations & Adjustments */}
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-6">
-          <div className="flex flex-col gap-1 border-b border-slate-100 pb-3">
-            <h2 className="text-base font-bold text-slate-800">Checkout & Calculations</h2>
-            <p className="text-xs text-slate-500">A compact summary first, then payment controls.</p>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-            <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4 sm:p-5">
-              <div className="space-y-3 font-mono text-sm">
-                <div className="flex justify-between text-slate-500">
-                  <span>Subtotal</span>
-                  <span>₹ {totals.subtotal.toFixed(2)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-4 text-slate-500">
-                  <label className="shrink-0">Discount</label>
-                  <div className="flex h-9 w-28 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5">
-                    <span className="text-sm text-slate-400">₹</span>
-                    <input
-                      type="number"
-                      className="w-full bg-transparent text-right outline-none"
-                      value={discountAmount}
-                      onChange={(e) => setDiscountAmount(Math.max(0, parseFloat(e.target.value) || 0))}
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-between text-slate-500">
-                  <span>Taxable Value</span>
-                  <span>₹ {totals.taxableAmount.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-slate-500">
-                  <span>CGST ({totals.gstRate / 2}%)</span>
-                  <span>₹ {totals.cgstAmount.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-slate-500">
-                  <span>SGST ({totals.gstRate / 2}%)</span>
-                  <span>₹ {totals.sgstAmount.toFixed(2)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-4 border-t border-dashed border-slate-200 pt-4">
-                  <label className="shrink-0 font-semibold text-slate-700">Round Off</label>
-                  <div className="flex h-9 w-28 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5">
-                    <span className="text-sm text-slate-400">₹</span>
-                    <input
-                      type="number"
-                      step="0.05"
-                      className="w-full bg-transparent text-right outline-none"
-                      value={roundOff}
-                      onChange={(e) => {
-                        setRoundOff(parseFloat(e.target.value) || 0);
-                      }}
-                    />
-                  </div>
-                </div>
-                <div className="flex items-end justify-between border-t border-slate-200 pt-4">
-                  <span className="text-sm font-semibold uppercase tracking-wide text-slate-700">Grand Total</span>
-                  <span className="font-mono text-2xl font-bold text-slate-900">₹ {totals.grandTotal.toFixed(2)}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 sm:p-5">
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Payment Mode</label>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    {(["CASH", "UPI", "CARD", "CREDIT"] as PaymentMethod[]).map((mode) => (
-                      <button
-                        key={mode}
-                        onClick={() => {
-                          setPaymentMethod(mode);
-                          if (mode === "CREDIT") {
-                            setPaidAmount(0);
-                          } else {
-                            setPaidAmount(totals.grandTotal);
-                          }
-                        }}
-                        className={"focus-ring h-9 rounded-md border px-3 text-xs font-bold transition-colors " + (paymentMethod === mode ? "border-brand bg-brand/5 text-brand" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50")}
-                      >
-                        {mode}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Paid Amount</label>
-                    {paymentMethod !== "CREDIT" && (
-                      <button
-                        type="button"
-                        onClick={() => setPaidAmount(totals.grandTotal)}
-                        className="text-[10px] font-bold text-brand hover:underline"
-                      >
-                        Pay Full
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3">
-                    <span className="text-sm font-mono text-slate-400">₹</span>
-                    <input
-                      type="number"
-                      disabled={paymentMethod === "CREDIT"}
-                      className="w-full bg-transparent text-right text-sm font-semibold outline-none disabled:opacity-40"
-                      value={paidAmount}
-                      onChange={(e) => setPaidAmount(Math.max(0, parseFloat(e.target.value) || 0))}
-                    />
-                  </div>
-                </div>
-
-                <div className={"flex items-center justify-between rounded-md border px-3 py-2 text-sm " + (totals.balanceAmount > 0 ? "border-orange-100 bg-orange-50" : "border-emerald-100 bg-emerald-50")}>
-                  <span className="text-slate-500">Balance Due</span>
-                  <span className={"font-mono font-bold " + (totals.balanceAmount > 0 ? "text-orange-600" : "text-emerald-700")}>
-                    ₹ {totals.balanceAmount.toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex justify-end print:hidden">
-          <button
-            onClick={handleSaveBill}
-            disabled={isSaving}
-            className="focus-ring inline-flex h-11 items-center justify-center gap-2 rounded-md bg-brand px-6 text-sm font-semibold text-white shadow hover:opacity-90 disabled:opacity-50"
-          >
-            {isSaving ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              <>
-                <Printer className="h-4 w-4" />
-                Save & Preview Receipt
-              </>
+        {/* Card 3: Checkout Summary */}
+        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          {/* Card Header — matches Card 1 & Card 2 style */}
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+              <IndianRupee className="h-5 w-5 text-brand" />
+              Order Summary
+            </h2>
+            {billNumberPreview && (
+              <span className="text-xs font-semibold text-slate-400 bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1">
+                Bill #{billNumberPreview}
+              </span>
             )}
-          </button>
+          </div>
+
+          {/* Summary Rows */}
+          <div className="space-y-0">
+            {/* Subtotal */}
+            <div className="flex items-center justify-between py-3 border-b border-slate-100">
+              <span className="text-sm text-slate-500 font-medium">Subtotal</span>
+              <span className="text-sm font-semibold text-slate-800 font-mono">₹ {totals.subtotal.toFixed(2)}</span>
+            </div>
+
+            {/* Discount */}
+            <div className="flex items-center justify-between py-3 border-b border-slate-100">
+              <label className="text-sm text-slate-500 font-medium">Discount (₹)</label>
+              <div className="flex h-10 w-36 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 focus-within:border-brand focus-within:bg-white transition-colors">
+                <span className="text-sm text-slate-400 select-none">₹</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="w-full bg-transparent text-right outline-none text-sm font-semibold text-slate-800 font-mono"
+                  value={discountAmount}
+                  onChange={(e) => setDiscountAmount(Math.max(0, parseFloat(e.target.value) || 0))}
+                />
+              </div>
+            </div>
+
+            {/* GST — editable % with live ₹ calculation */}
+            <div className="flex items-center justify-between py-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-slate-500 font-medium">GST</label>
+                <div className="flex h-8 w-20 items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 focus-within:border-brand focus-within:bg-white transition-colors">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    className="w-full bg-transparent text-center outline-none text-sm font-semibold text-slate-800 font-mono"
+                    value={gstRate}
+                    onChange={(e) => setGstRate(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))}
+                  />
+                  <span className="text-xs text-slate-400 select-none font-bold">%</span>
+                </div>
+              </div>
+              <span className="text-sm font-semibold text-slate-800 font-mono">₹ {(totals.cgstAmount + totals.sgstAmount).toFixed(2)}</span>
+            </div>
+
+            {/* Round Off */}
+            <div className="flex items-center justify-between py-3 border-b border-slate-100">
+              <label className="text-sm text-slate-500 font-medium">Round Off (₹)</label>
+              <div className="flex h-10 w-36 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 focus-within:border-brand focus-within:bg-white transition-colors">
+                <span className="text-sm text-slate-400 select-none">₹</span>
+                <input
+                  type="number"
+                  step="0.05"
+                  className="w-full bg-transparent text-right outline-none text-sm font-semibold text-slate-800 font-mono"
+                  value={roundOff}
+                  onChange={(e) => setRoundOff(parseFloat(e.target.value) || 0)}
+                />
+              </div>
+            </div>
+
+            {/* Grand Total */}
+            <div className="flex items-center justify-between mt-4 rounded-xl bg-slate-900 px-5 py-4 text-white">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">Grand Total</p>
+                <p className="text-xs text-slate-500 font-medium">incl. all taxes</p>
+              </div>
+              <span className="text-3xl font-bold font-mono tracking-tight">₹ {totals.grandTotal.toFixed(2)}</span>
+            </div>
+          </div>
+
+          {/* Save Button */}
+          <div className="print:hidden">
+            <button
+              type="button"
+              onClick={handleSaveBill}
+              disabled={isSaving}
+              className="focus-ring flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-brand text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50 transition-opacity"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Printer className="h-4 w-4" />
+                  Save &amp; Preview Receipt
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
       </div>
