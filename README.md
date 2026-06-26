@@ -127,3 +127,15 @@ npm run build:vercel
 - The API uses Prisma against PostgreSQL.
 - `packages/shared` must be built before the web app when deploying the frontend.
 - The legacy Vite app remains in `apps/legacy-pos`, but it is not the primary deployment target.
+
+## Database Management
+
+To completely clear your Supabase database (dropping all tables and data), recreate the schema, and run the seed script with default data, run:
+```bash
+npx prisma migrate reset
+```
+
+If you just want to run the seed script without deleting the database, run:
+```bash
+npm run prisma:seed
+```

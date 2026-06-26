@@ -8,6 +8,7 @@ import {
   ClipboardList,
   Gauge,
   History,
+  Loader2,
   LogOut,
   ReceiptText,
   Scissors,
@@ -39,12 +40,14 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
   const pathname = usePathname();
   const router = useRouter();
   const [session, setSession] = useState<ApiSession | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
     const handleUpdate = () => {
       setSession(loadSession());
     };
     setSession(loadSession());
+    setIsLoaded(true);
     window.addEventListener("session-updated", handleUpdate);
     return () => {
       window.removeEventListener("session-updated", handleUpdate);
@@ -66,10 +69,28 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
     }
   }, [session, pathname, router]);
 
+  // Redirect to login if session is loaded and is null
+  useEffect(() => {
+    if (isLoaded && !session) {
+      router.push("/login");
+    }
+  }, [isLoaded, session, router]);
+
   const onLogout = () => {
     clearSession();
     router.push("/login");
   };
+
+  if (!isLoaded || !session) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-ink">
+        <div className="flex flex-col items-center gap-2">
+          <Loader2 className="h-8 w-8 animate-spin text-brand" />
+          <span className="text-sm text-muted font-medium">Loading session...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-ink">
